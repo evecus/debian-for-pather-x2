@@ -154,11 +154,11 @@ jobs:
               locales tzdata \
               iproute2 network-manager ifupdown \
               net-tools iputils-ping dnsutils \
-              wpasupplicant wireless-tools \
-              bash-completion htop nano vim \
-              u-boot-tools initramfs-tools \
+              wpasupplicant wireless-tools chrony \
+              bash-completion htop nano vim parted \
+              u-boot-tools initramfs-tools bsdextrautils \
               btrfs-progs e2fsprogs dosfstools \
-              lsof file procps cron \
+              lsof file procps cron ntpdate \
               --no-install-recommends
             apt-get clean && rm -rf /var/lib/apt/lists/*
           "
@@ -198,6 +198,11 @@ jobs:
           echo 'UG9ydCAyMgpQZXJtaXRSb290TG9naW4geWVzClBhc3N3b3JkQXV0aGVudGljYXRpb24geWVzClB1YmtleUF1dGhlbnRpY2F0aW9uIHllcwpVc2VQQU0geWVzClgxMUZvcndhcmRpbmcgbm8KUHJpbnRNb3RkIG5vCkFjY2VwdEVudiBMQU5HIExDXyoKU3Vic3lzdGVtIHNmdHAgL3Vzci9saWIvb3BlbnNzaC9zZnRwLXNlcnZlcgo=' \
             | base64 -d | sudo tee "${ROOTFS_DIR}/etc/ssh/sshd_config" > /dev/null
           sudo chroot "${ROOTFS_DIR}" systemctl enable ssh 2>/dev/null || true
+
+          # 直接建软链接 enable 服务，不依赖 chroot 里的 systemctl
+          sudo mkdir -p "${ROOTFS_DIR}/etc/systemd/system/multi-user.target.wants"
+          sudo ln -sf /lib/systemd/system/ssh.service             "${ROOTFS_DIR}/etc/systemd/system/multi-user.target.wants/ssh.service"
+          sudo ln -sf /lib/systemd/system/chrony.service             "${ROOTFS_DIR}/etc/systemd/system/multi-user.target.wants/chrony.service"
 
           # ── root 密码 ─────────────────────────────────────────────────
           ROOT_HASH="$(openssl passwd -6 "${ROOT_PASSWORD}")"
