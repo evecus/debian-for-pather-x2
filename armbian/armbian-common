@@ -1,0 +1,56 @@
+#!/bin/bash
+# Copyright (c) Authors: https://www.armbian.com/authors
+# Modified for Debian / panther-x2 (RK3566)
+
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+my_name="${0##*/}"
+Log=/var/log/armbian-hardware-monitor.log
+
+show_motd_warning() {
+cat > /etc/update-motd.d/90-warning <<EOT
+#!/bin/bash
+echo -e "\e[0;91mAttention:\x1B[0m $1\n"
+rm "\$0"
+EOT
+chmod +x /etc/update-motd.d/90-warning
+}
+
+generate_random_mac() {
+	local prefixes=("02" "06" "0A" "0E")
+	local idx=$(shuf -i 0-3 -n 1)
+	MACADDR=$(printf "${prefixes[$idx]}"':%02X:%02X:%02X:%02X:%02X\n' \
+		$((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) \
+		$((RANDOM%256)) $((RANDOM%256)))
+}
+
+set_fixed_mac() {
+	local NM_DIR="/etc/NetworkManager/system-connections"
+	mkdir -p "${NM_DIR}"
+	for iface in $(ip link | awk -F': ' '/^[0-9]+:/{print $2}' | \
+		grep -E '^(eth|end|enp|eno|wan|lan)' | sed 's/@.*//' || true); do
+		local conf="${NM_DIR}/ethernet-${iface}.nmconnection"
+		[[ -f "${conf}" ]] && continue
+		generate_random_mac
+		cat > "${conf}" <<EOF
+[connection]
+id=ethernet-${iface}
+type=ethernet
+interface-name=${iface}
+autoconnect=true
+
+[ethernet]
+cloned-mac-address=${MACADDR}
+
+[ipv4]
+method=auto
+
+[ipv6]
+method=auto
+addr-gen-mode=stable-privacy
+EOF
+		chmod 600 "${conf}"
+		echo "### [common] ${iface}: MAC=${MACADDR}" >> "${Log}"
+	done
+	systemctl is-active --quiet NetworkManager 2>/dev/null && \
+		nmcli connection reload 2>/dev/null || true
+}
