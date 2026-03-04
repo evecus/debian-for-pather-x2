@@ -236,12 +236,6 @@ main()
 {
 	rm /var/run/resize2fs-reboot 2>/dev/null
 
-	# skip resizing if explicitly disabled
-	if [[ -f /root/.no_rootfs_resize ]]; then
-		systemctl disable debian-resize-filesystem
-		exit 0
-	fi
-
 	# Logging header
 	CPU_ARCH=$(lscpu | awk '/Architecture/ {print $2}')
 	DISTRO_ARCH=$(dpkg --print-architecture)
