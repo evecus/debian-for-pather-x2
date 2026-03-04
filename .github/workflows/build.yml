@@ -24,10 +24,10 @@ on:
         default: "panther-x2"
         type: choice
         options:
+          - panther-x2
           - s905d
           - s905l3a
           - s905l3b
-          - panther-x2
           - wxy-oes
 
       armbian_kernel:
@@ -40,6 +40,8 @@ on:
           - 6.1.y
           - 6.6.y
           - 6.12.y
+          - 5.15.y
+          - 5.10.y
           - 6.1.y_6.12.y
           # ── Rockchip rk35xx 系列 ────────────
           - rk35xx/6.1.y
@@ -189,6 +191,115 @@ jobs:
             done
             echo "▶ rootfs 校验通过，跳过 debootstrap"
 
+          else
+            # ── 正常 debootstrap 流程 ───────────────────────────────────────
+            sudo update-binfmts --enable qemu-aarch64
+
+            echo "▶ debootstrap 第一阶段..."
+            sudo debootstrap --arch=arm64 --foreign --include=ca-certificates \
+              "${DEBIAN_RELEASE}" "${ROOTFS_DIR}" "${DEBIAN_MIRROR}/"
+            sudo cp /usr/bin/qemu-aarch64-static "${ROOTFS_DIR}/usr/bin/"
+
+            echo "▶ debootstrap 第二阶段..."
+            sudo chroot "${ROOTFS_DIR}" /debootstrap/debootstrap --second-stage
+          fi
+
+          # apt 源
+          printf 'deb %s/ %s main contrib non-free non-free-firmware\n'             "${DEBIAN_MIRROR}" "${DEBIAN_RELEASE}" | sudo tee "${ROOTFS_DIR}/etc/apt/sources.list" > /dev/null
+          printf 'deb %s/ %s-updates main contrib non-free non-free-firmware\n'             "${DEBIAN_MIRROR}" "${DEBIAN_RELEASE}" | sudo tee -a "${ROOTFS_DIR}/etc/apt/sources.list" > /dev/null
+          printf 'deb https://security.debian.org/debian-security %s-security main contrib non-free non-free-firmware\n'             "${DEBIAN_RELEASE}" | sudo tee -a "${ROOTFS_DIR}/etc/apt/sources.list" > /dev/null
+
+          echo "▶ 安装软件包..."
+          sudo chroot "${ROOTFS_DIR}" /bin/bash -c "
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq
+            apt-get install -y \
+              openssh-server sudo curl wget ca-certificates \
+              locales tzdata \
+              iproute2 network-manager ifupdown \
+              net-tools iputils-ping dnsutils \
+              bash-completion htop nano vim \
+              u-boot-tools initramfs-tools \
+              btrfs-progs e2fsprogs dosfstools \
+              lsof file procps cron \
+              --no-install-recommends
+            apt-get clean && rm -rf /var/lib/apt/lists/*
+          "
+
+          # 时区
+          sudo chroot "${ROOTFS_DIR}" ln -sf "/usr/share/zoneinfo/${TZ_VAL}" /etc/localtime
+          echo "${TZ_VAL}" | sudo tee "${ROOTFS_DIR}/etc/timezone" > /dev/null
+          sudo chroot "${ROOTFS_DIR}" bash -c "DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -f noninteractive tzdata"
+
+          # locale
+          sudo chroot "${ROOTFS_DIR}" bash -c "
+            sed -i 's/^# *\(en_US.UTF-8\)/\1/' /etc/locale.gen
+            locale-gen
+            echo 'LANG=en_US.UTF-8' > /etc/default/locale
+          "
+
+          # hostname
+          echo "${HOSTNAME_VAL}" | sudo tee "${ROOTFS_DIR}/etc/hostname" > /dev/null
+          printf '127.0.0.1\tlocalhost\n127.0.1.1\t%s\n::1\tlocalhost ip6-localhost ip6-loopback\n'             "${HOSTNAME_VAL}" | sudo tee "${ROOTFS_DIR}/etc/hosts" > /dev/null
+
+          # SSH（base64 解码写入，避免 heredoc 在 YAML 里的问题）
+          sudo mkdir -p -m 0755 "${ROOTFS_DIR}/var/run/sshd"
+          echo 'UG9ydCAyMgpQZXJtaXRSb290TG9naW4geWVzClBhc3N3b3JkQXV0aGVudGljYXRpb24geWVzClB1YmtleUF1dGhlbnRpY2F0aW9uIHllcwpVc2VQQU0geWVzClgxMUZvcndhcmRpbmcgbm8KUHJpbnRNb3RkIG5vCkFjY2VwdEVudiBMQU5HIExDXyoKU3Vic3lzdGVtIHNmdHAgL3Vzci9saWIvb3BlbnNzaC9zZnRwLXNlcnZlcgo=' | base64 -d | sudo tee "${ROOTFS_DIR}/etc/ssh/sshd_config" > /dev/null
+          sudo chroot "${ROOTFS_DIR}" systemctl enable ssh 2>/dev/null || true
+
+          # root 密码
+          ROOT_HASH="$(openssl passwd -6 "${ROOT_PASSWORD}")"
+          sudo sed -i "s|^root:[^:]*|root:${ROOT_HASH}|" "${ROOTFS_DIR}/etc/shadow"
+
+          # NetworkManager
+          sudo mkdir -p "${ROOTFS_DIR}/etc/NetworkManager"
+          echo 'W21haW5dCnBsdWdpbnM9aWZ1cGRvd24sa2V5ZmlsZQpkaGNwPWludGVybmFsCltpZnVwZG93bl0KbWFuYWdlZD10cnVlCg==' | base64 -d | sudo tee "${ROOTFS_DIR}/etc/NetworkManager/NetworkManager.conf" > /dev/null
+          printf 'auto lo\niface lo inet loopback\n' | sudo tee "${ROOTFS_DIR}/etc/network/interfaces" > /dev/null
+          sudo chroot "${ROOTFS_DIR}" systemctl enable NetworkManager 2>/dev/null || true
+
+          # systemd 超时优化
+          SYS_CONF="${ROOTFS_DIR}/etc/systemd/system.conf"
+          [[ -f "${SYS_CONF}" ]] && {
+            sudo sed -i "s|^#*DefaultTimeoutStartSec.*|DefaultTimeoutStartSec=10s|g" "${SYS_CONF}"
+            sudo sed -i "s|^#*DefaultTimeoutStopSec.*|DefaultTimeoutStopSec=10s|g"   "${SYS_CONF}"
+          } || true
+
+          # shell 环境
+          echo 'CmlmIFsgLXggL3Vzci9iaW4vZGlyY29sb3JzIF07IHRoZW4KICAgIGV2YWwgIiQoZGlyY29sb3JzIC1iKSIKICAgIGFsaWFzIGxzPSdscyAtLWNvbG9yPWF1dG8nCiAgICBhbGlhcyBsbD0nbHMgLWxoIC0tY29sb3I9YXV0bycKICAgIGFsaWFzIGdyZXA9J2dyZXAgLS1jb2xvcj1hdXRvJwpmaQpQUzE9J1xbXGVbMTszMm1cXVx1QFxoXFtcZVswbVxdOlxbXGVbMTszNG1cXVx3XFtcZVswbVxdXCQgJwo=' | base64 -d | sudo tee -a "${ROOTFS_DIR}/root/.bashrc" > /dev/null
+
+          # rc.local
+          if [[ ! -f "${ROOTFS_DIR}/etc/rc.local" ]]; then
+            printf '#!/bin/sh -e\nexit 0\n' | sudo tee "${ROOTFS_DIR}/etc/rc.local" > /dev/null
+            sudo chmod +x "${ROOTFS_DIR}/etc/rc.local"
+          fi
+
+          # uInitrd 钩子（u-boot 需要 uInitrd 格式的 initramfs）
+          sudo mkdir -p "${ROOTFS_DIR}/etc/initramfs/post-update.d"
+          echo 'IyEvYmluL2Jhc2ggLWUKdGVtcG5hbWU9Ii9ib290L3VJbml0cmQtJDEiCm1raW1hZ2UgLUEgYXJtNjQgLU8gbGludXggLVQgcmFtZGlzayAtQyBnemlwIC1uIHVJbml0cmQgLWQgIiQyIiAiJHt0ZW1wbmFtZX0iCmxuIC1zZnYgIiQoYmFzZW5hbWUgXCIke3RlbXBuYW1lfVwiKSIgL2Jvb3QvdUluaXRyZCB8fCBtdiAtdiAiJHt0ZW1wbmFtZX0iIC9ib290L3VJbml0cmQKZXhpdCAwCg==' | base64 -d | sudo tee "${ROOTFS_DIR}/etc/initramfs/post-update.d/99-uboot" > /dev/null
+          sudo chmod +x "${ROOTFS_DIR}/etc/initramfs/post-update.d/99-uboot"
+
+          # 禁止 update-initramfs 自动运行（rebuild 接管）
+          sudo mkdir -p "${ROOTFS_DIR}/etc/initramfs-tools"
+          INITRAMFS_CONF="${ROOTFS_DIR}/etc/initramfs-tools/update-initramfs.conf"
+          if [[ -f "${INITRAMFS_CONF}" ]]; then
+            sudo sed -i "s|^update_initramfs=.*|update_initramfs=no|g" "${INITRAMFS_CONF}"
+          else
+            echo "update_initramfs=no" | sudo tee "${INITRAMFS_CONF}" > /dev/null
+          fi
+
+          # fstab（rebuild 会 sed 替换 LABEL=ROOTFS 行的 UUID）
+          printf 'LABEL=ROOTFS\t/\text4\tdefaults,noatime,nodiratime,commit=600,errors=remount-ro\t0 1\n' | sudo tee "${ROOTFS_DIR}/etc/fstab" > /dev/null
+          printf 'LABEL=BOOT\t/boot\tvfat\tdefaults\t0 2\n' | sudo tee -a "${ROOTFS_DIR}/etc/fstab" > /dev/null
+
+          # 预建 rebuild 需要的目录（debootstrap 不含内核，故无此目录）
+          sudo mkdir -p "${ROOTFS_DIR}/usr/lib/modules"
+
+          # 清理 qemu
+          sudo rm -f "${ROOTFS_DIR}/usr/bin/qemu-aarch64-static"
+
+          echo "▶ rootfs 完成: $(sudo du -sh ${ROOTFS_DIR} | awk '{print $1}')"
+          echo "status=success" >> "${GITHUB_OUTPUT}"
+
       - name: Pack rootfs into image
         id: pack
         if: ${{ steps.rootfs.outputs.status == 'success' && !cancelled() }}
@@ -280,7 +391,7 @@ jobs:
           # auto_kernel=true 时让 rebuild 自动选最新版本，不传 -k
           # rk35xx 机型的内核 tag 由 model_database.conf 自动决定，无需 -u 干预
           ARGS="-b ${BOARD} -a ${AUTO_KERNEL} -t ${FSTYPE}"
-          ARGS="${ARGS} -s 256/1024 -r ophub/kernel -u stable -n ${BUILDER}"
+          ARGS="${ARGS} -s 512/3072 -r ophub/kernel -u stable -n ${BUILDER}"
           # 当 auto_kernel=false 时才传 -k（且过滤掉 rk35xx/ 前缀）
           if [[ "${AUTO_KERNEL}" != "true" ]]; then
             KERNEL_VER="${KERNEL##*/}"  # 去掉 rk35xx/ 等前缀
