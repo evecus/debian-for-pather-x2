@@ -21,54 +21,25 @@ on:
       armbian_board:
         description: "目标机型（model_database.conf BOARD 列）"
         required: false
-        default: "s905x3"
+        default: "panther-x2"
         type: choice
         options:
-          - s905
           - s905d
-          - s905l
-          - s905l-mg101
-          - s905l2
-          - s905l3
-          - s905l3-cm211
           - s905l3a
           - s905l3b
-          - s905l3b-e900v22e
-          - s905w
-          - s905x
-          - s905x-b860h
-          - s905x-t95
-          - s905x2
-          - s905x3
-          - s905x3-x88-pro-x3
-          - s912
-          - s912-m8s-pro
-          - s912-phicomm-t1
-          - s912-t95z-plus
-          - s912-x92
-          - s922x
-          - s922x-reva
-          - s905d_s905x3_s912_s922x
-          # ── Rockchip RK3566 ──────────────────
-          - jp-tvbox
-          - lckfb-tspi
-          - orangepi-3b
           - panther-x2
-          - station-m2
-          - wxy-oect
+          - wxy-oes
 
       armbian_kernel:
         description: "内核版本"
         required: false
-        default: "6.1.y"
+        default: "rk35xx/6.1.y"
         type: choice
         options:
           # ── Amlogic stable 系列 ─────────────
           - 6.1.y
           - 6.6.y
           - 6.12.y
-          - 5.15.y
-          - 5.10.y
           - 6.1.y_6.12.y
           # ── Rockchip rk35xx 系列 ────────────
           - rk35xx/6.1.y
@@ -418,7 +389,7 @@ jobs:
           # auto_kernel=true 时让 rebuild 自动选最新版本，不传 -k
           # rk35xx 机型的内核 tag 由 model_database.conf 自动决定，无需 -u 干预
           ARGS="-b ${BOARD} -a ${AUTO_KERNEL} -t ${FSTYPE}"
-          ARGS="${ARGS} -s 512/3072 -r ophub/kernel -u stable -n ${BUILDER}"
+          ARGS="${ARGS} -s 256/1024 -r ophub/kernel -u stable -n ${BUILDER}"
           # 当 auto_kernel=false 时才传 -k（且过滤掉 rk35xx/ 前缀）
           if [[ "${AUTO_KERNEL}" != "true" ]]; then
             KERNEL_VER="${KERNEL##*/}"  # 去掉 rk35xx/ 等前缀
