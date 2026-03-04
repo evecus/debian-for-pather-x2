@@ -159,9 +159,9 @@ jobs:
               net-tools iputils-ping dnsutils \
               wpasupplicant wireless-tools chrony \
               bash-completion htop nano vim \
-              u-boot-tools initramfs-tools \
+              u-boot-tools initramfs-tools parted \
               btrfs-progs e2fsprogs dosfstools \
-              lsof file procps cron ntpdate \
+              lsof file procps cron ntpdate bsdextrautils \
               --no-install-recommends
             apt-get clean && rm -rf /var/lib/apt/lists/*
           "
@@ -246,7 +246,9 @@ jobs:
           # /etc/debian-release
           sudo cp debian/debian-release "${ROOTFS_DIR}/etc/debian-release"
           sudo cp debian/debian-firstrun-etc "${ROOTFS_DIR}/etc/default/debian-firstrun"
-
+          sudo cp debian/debian-update "${ROOTFS_DIR}/usr/local/bin/debian-update"
+          sudo chmod +x "${ROOTFS_DIR}/usr/local/bin/debian-update"
+          
           # systemd service 文件
           for f in systemd/debian-firstrun.service \
                    systemd/debian-hardware-optimize.service \
