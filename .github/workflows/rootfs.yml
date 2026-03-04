@@ -246,7 +246,7 @@ jobs:
 
           # /etc/armbian-release
           sudo cp armbian/armbian-release "${ROOTFS_DIR}/etc/armbian-release"
-
+          sudo cp armbian/armbian-firstrun-etc "${ROOTFS_DIR}/etc/default/armbian-firstrun"
 
           # systemd service 文件
           for f in systemd/armbian-firstrun.service \
