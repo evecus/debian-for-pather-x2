@@ -333,6 +333,7 @@ jobs:
           MNT="/mnt/rootfs_pack_$$"
           sudo mkdir -p "${MNT}"
           sudo mount "${LOOP}p1" "${MNT}"
+          sudo rm -f "${ROOTFS_DIR}/root/.no_rootfs_resize"
           sudo cp -a "${ROOTFS_DIR}/." "${MNT}/"
           sudo sync
           sudo umount "${MNT}"
