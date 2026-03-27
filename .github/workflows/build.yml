@@ -405,7 +405,7 @@ jobs:
           cp -v "${IMG_PATH}" build/output/images/
 
           ARGS="-b ${BOARD} -a ${AUTO_KERNEL} -t ${FSTYPE}"
-          ARGS="${ARGS} -s 512/3072 -r ophub/kernel -u rk35xx -n ${BUILDER}"
+          ARGS="${ARGS} -s 256/1024 -r ophub/kernel -u rk35xx -n ${BUILDER}"
           if [[ "${AUTO_KERNEL}" != "true" ]]; then
             KERNEL_VER="${KERNEL##*/}"
             ARGS="${ARGS} -k ${KERNEL_VER}"
