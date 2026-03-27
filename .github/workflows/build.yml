@@ -20,13 +20,13 @@ on:
           - bookworm
           - trixie
       armbian_kernel:
-        description: "内核版本"
+        description: "内核版本 (panther-x2 使用 stable 系列)"
         required: false
-        default: "rk35xx/6.1.y"
+        default: "6.12.y"
         type: choice
         options:
           - 6.12.y
-          - rk35xx/6.1.y
+          - 6.1.y
       armbian_fstype:
         description: "rootfs 文件系统类型"
         required: false
@@ -64,7 +64,7 @@ jobs:
             git curl wget xz-utils lz4 zstd pv jq rsync
           echo "status=success" >> "${GITHUB_OUTPUT}"
 
-      # ── 2. 合并磁盘空间 (LVM 扩容以容纳大镜像) ─────────────────────────
+      # ── 2. 合并磁盘空间 ───────────────────────────────────────────────
       - name: Create build disk
         if: ${{ steps.init.outputs.status == 'success' }}
         run: |
@@ -98,11 +98,13 @@ jobs:
           sudo tar -xf /tmp/rootfs.tar.gz -C "${ROOTFS_DIR}"
           rm -f /tmp/rootfs.tar.gz
 
-          [[ -d "${ROOTFS_DIR}/etc" ]] || { echo "::error::rootfs 结构非法，缺少 /etc 目录"; exit 1; }
+          [[ -d "${ROOTFS_DIR}/etc" ]] || { echo "::error::rootfs 结构非法，缺少 /etc"; exit 1; }
           echo "▶ 解压完成，占用空间: $(sudo du -sh ${ROOTFS_DIR} | awk '{print $1}')"
           echo "status=success" >> "${GITHUB_OUTPUT}"
 
-      # ── 4. 将 Rootfs 写入标准 Armbian img (供 rebuild 消费) ───────────
+      # ── 4. 将 rootfs 打包成 Armbian 格式 .img (rebuild 脚本的输入) ────
+      # rebuild 脚本固定从 rebuild/build/output/images/*-trunk_*.img 读取
+      # 它会 losetup 挂载这个 img，提取 rootfs，注入内核/uboot 后生成新 img
       - name: Pack rootfs into Armbian-format image
         id: pack
         if: ${{ steps.rootfs.outputs.status == 'success' }}
@@ -117,53 +119,42 @@ jobs:
           IMG_NAME="Armbian_22.02.0-trunk_${{ inputs.debian_release }}_arm64.img"
           IMG_PATH="${IMG_DIR}/${IMG_NAME}"
 
-          # 计算 rootfs 实际大小，留 512M 余量
+          # 镜像大小 = rootfs 实际大小 + 512M(boot) + 256M(余量)
           ROOTFS_MB=$(sudo du -sm "${ROOTFS_DIR}" | awk '{print $1}')
-          IMG_MB=$((ROOTFS_MB + 768))   # bootfs 256M + rootfs 余量 512M
-          echo "▶ rootfs 大小: ${ROOTFS_MB}M → 镜像总大小: ${IMG_MB}M"
+          IMG_MB=$((ROOTFS_MB + 512 + 256))
+          echo "▶ rootfs=${ROOTFS_MB}MiB → 镜像=${IMG_MB}MiB"
 
           sudo fallocate -l "${IMG_MB}M" "${IMG_PATH}"
 
-          # 标准 Armbian 分区布局: p1=bootfs(fat32,256M) p2=rootfs(ext4,剩余)
-          sudo parted -s "${IMG_PATH}" mklabel gpt
-          sudo parted -s "${IMG_PATH}" mkpart primary fat32  16MiB  272MiB
-          sudo parted -s "${IMG_PATH}" mkpart primary ext4  272MiB  100%
+          # MBR 分区表，单 ext4 分区从 4MiB 开始（留 skip zone 给 uboot）
+          sudo parted -s "${IMG_PATH}" mklabel msdos
+          sudo parted -s "${IMG_PATH}" mkpart primary ext4 4MiB 100%
 
-          LOOP=$(sudo losetup --find --show --partscan "${IMG_PATH}")
+          LOOP=$(sudo losetup -P -f --show "${IMG_PATH}")
           echo "▶ loop device: ${LOOP}"
 
-          sudo mkfs.vfat -F 32 -n BOOT "${LOOP}p1"
-          sudo mkfs.ext4 -F -L rootfs "${LOOP}p2"
+          # 标签 ROOTFS，rebuild 脚本通过 LABEL 识别根分区
+          sudo mkfs.ext4 -F -q -L "ROOTFS" -b 4096 "${LOOP}p1"
 
-          MNT_ROOT=$(mktemp -d)
-          MNT_BOOT=$(mktemp -d)
-          sudo mount "${LOOP}p2" "${MNT_ROOT}"
-          sudo mount "${LOOP}p1" "${MNT_BOOT}"
-
+          MNT=$(mktemp -d)
+          sudo mount "${LOOP}p1" "${MNT}"
           echo "▶ 正在写入 rootfs..."
-          sudo rsync -a --info=progress2 "${ROOTFS_DIR}/" "${MNT_ROOT}/"
-
-          # 写入基础 fstab（rebuild 会覆盖，这里仅保证镜像可挂载）
-          BOOT_UUID=$(sudo blkid -s UUID -o value "${LOOP}p1")
-          ROOT_UUID=$(sudo blkid -s UUID -o value "${LOOP}p2")
-          sudo bash -c "cat > ${MNT_ROOT}/etc/fstab" << EOF
-          UUID=${ROOT_UUID}  /       ext4  defaults,noatime  0 1
-          UUID=${BOOT_UUID}  /boot   vfat  defaults          0 2
-          tmpfs              /tmp    tmpfs defaults,nosuid    0 0
-          EOF
-
-          sudo umount "${MNT_BOOT}"
-          sudo umount "${MNT_ROOT}"
+          sudo rsync -a "${ROOTFS_DIR}/" "${MNT}/"
+          sudo sync
+          sudo umount "${MNT}"
           sudo losetup -d "${LOOP}"
-          rmdir "${MNT_ROOT}" "${MNT_BOOT}"
+          rmdir "${MNT}"
 
-          echo "▶ 镜像写入完成: ${IMG_PATH}"
+          echo "▶ 镜像写入完成: $(du -sh ${IMG_PATH})"
           echo "img_path=${IMG_PATH}" >> "${GITHUB_OUTPUT}"
           echo "img_outdir=${IMG_DIR}" >> "${GITHUB_OUTPUT}"
           echo "status=success" >> "${GITHUB_OUTPUT}"
 
-      # ── 5. Rebuild：注入 RK3566 内核 + 引导 ─────────────────────────
-      - name: Rebuild image (inject kernel & bootloader)
+      # ── 5. Rebuild：注入内核 + uboot + 平台文件 ──────────────────────
+      # panther-x2 在 model_database.conf 里: KERNEL_TAGS = stable/6.12.y
+      # 所以内核从 kernel_stable release 下载，不需要也不能传 -u 参数
+      # 传 -u 会覆盖 model_database 里的 tag 导致下载地址错误 → 404
+      - name: Rebuild image
         id: rebuild
         if: ${{ steps.pack.outputs.status == 'success' }}
         env:
@@ -176,19 +167,23 @@ jobs:
           sudo chmod +x "${REBUILD_DIR}/rebuild"
           cd "${REBUILD_DIR}"
 
-          KERNEL_VER="${KERNEL##*/}"
-          echo "▶ 执行: sudo ./rebuild -b ${BOARD} -a true -t ${FSTYPE} -s 256/1024 -r ophub/kernel -u stable -k 6.12.78"
+          echo "▶ 执行: sudo ./rebuild -b ${BOARD} -k ${KERNEL} -a true -t ${FSTYPE} -s 512/2048 -r ophub/kernel -n ${BUILDER}"
           sudo ./rebuild \
             -b ${BOARD} \
+            -k ${KERNEL} \
             -a true \
             -t ${FSTYPE} \
-            -s 256/1024 \
+            -s 512/2048 \
             -r ophub/kernel \
-            -u rk35xx \
-            -k ${KERNEL_VER} \
             -n ${BUILDER}
 
-          echo "PACKAGED_OUTPUTPATH=${{ steps.pack.outputs.img_outdir }}" >> "${GITHUB_ENV}"
+          OUTPUT_DIR="${REBUILD_DIR}/build/output/images"
+          ls -lh "${OUTPUT_DIR}/"
+
+          PACKAGED_FILE="$(ls ${OUTPUT_DIR}/*.img.gz 2>/dev/null | head -1)"
+          [[ -z "${PACKAGED_FILE}" ]] && { echo "::error::rebuild 未生成 .img.gz"; exit 1; }
+
+          echo "PACKAGED_OUTPUTPATH=${OUTPUT_DIR}" >> "${GITHUB_ENV}"
           echo "PACKAGED_STATUS=success" >> "${GITHUB_ENV}"
 
       # ── 6. 发布 Release ──────────────────────────────────────────────
@@ -196,12 +191,16 @@ jobs:
         uses: ncipollo/release-action@main
         if: ${{ env.PACKAGED_STATUS == 'success' }}
         with:
-          tag: "Debian_${{ inputs.debian_release }}_${{ github.run_number }}"
-          name: "Debian ${{ inputs.debian_release }} · ${{ inputs.armbian_kernel }}"
+          tag: "Debian_${{ inputs.debian_release }}_${{ inputs.armbian_kernel }}_${{ github.run_number }}"
+          name: "Debian ${{ inputs.debian_release }} · panther-x2 · ${{ inputs.armbian_kernel }}"
           artifacts: "${{ env.PACKAGED_OUTPUTPATH }}/*.img.gz*"
+          allowUpdates: true
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
-            ## 基于已有 Rootfs 构建
-            - **来源 URL**: `${{ inputs.rootfs_url }}`
-            - **内核**: `${{ inputs.armbian_kernel }}`
-            - **文件系统**: `${{ inputs.armbian_fstype }}`
+            ## Debian ${{ inputs.debian_release }} for panther-x2 (RK3566)
+            | 参数 | 值 |
+            |------|-----|
+            | 来源 rootfs | `${{ inputs.rootfs_url }}` |
+            | 内核 | `${{ inputs.armbian_kernel }}` |
+            | 文件系统 | `${{ inputs.armbian_fstype }}` |
+            | 构建编号 | `#${{ github.run_number }}` |
