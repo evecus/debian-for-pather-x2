@@ -1,9 +1,9 @@
 #==========================================================================
-# 用途：基于 Debian 官方 rootfs 构建 Amlogic S9xxx 系列盒子镜像
-# 直接调用 rebuild 脚本，不依赖 action 浮动版本
+# 用途：基于 Debian 官方 rootfs 构建 panther-x2 (RK3566) 镜像
+# rebuild 工具链已内置仓库，完全独立，不依赖外部 ophub 仓库
 #==========================================================================
 
-name: Build Debian for Amlogic S9xxx / Rockchip RK35xx
+name: Build Debian for panther-x2 (RK3566)
 
 on:
   workflow_dispatch:
@@ -18,33 +18,15 @@ on:
           - bookworm
           - trixie
 
-      armbian_board:
-        description: "目标机型（model_database.conf BOARD 列）"
-        required: false
-        default: "panther-x2"
-        type: choice
-        options:
-          - panther-x2
-          - s905d
-          - s905l3a
-          - s905l3b
-          - wxy-oes
-
       armbian_kernel:
         description: "内核版本"
         required: false
-        default: "rk35xx/6.1.y"
+        default: "6.12.y"
         type: choice
         options:
-          # ── Amlogic stable 系列 ─────────────
-          - 6.1.y
-          - 6.6.y
           - 6.12.y
-          - 5.15.y
-          - 5.10.y
-          - 6.1.y_6.12.y
-          # ── Rockchip rk35xx 系列 ────────────
-          - rk35xx/6.1.y
+          - 6.6.y
+          - 6.1.y
 
       auto_kernel:
         description: "自动使用同系列最新内核"
@@ -101,8 +83,7 @@ env:
   TZ: UTC
   DEBIAN_MIRROR: "https://deb.debian.org/debian"
   ROOTFS_DIR: /builder/debian-rootfs
-  OPHUB_REPO: "https://github.com/ophub/amlogic-s9xxx-armbian"
-  OPHUB_BRANCH: "main"
+  BOARD: panther-x2
 
 jobs:
   build:
@@ -113,6 +94,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ── 1. 初始化环境 ──────────────────────────────────────────────────
       - name: Initialize environment
         id: init
         env:
@@ -123,43 +105,43 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android 2>/dev/null
           sudo swapoff -a && sudo rm -f /swapfile /mnt/swapfile
           sudo -E apt-get -y update
-          sudo -E apt-get -y purge             azure-cli ghc* zulu* llvm* firefox google* dotnet*             powershell openjdk* mongodb* moby* 2>/dev/null || true
-          sudo -E apt-get -y install             debootstrap qemu-user-static binfmt-support             parted e2fsprogs dosfstools btrfs-progs             u-boot-tools uuid-runtime openssl pigz             git curl wget xz-utils lz4 zstd             pv bc jq
+          sudo -E apt-get -y purge \
+            azure-cli ghc* zulu* llvm* firefox google* dotnet* \
+            powershell openjdk* mongodb* moby* 2>/dev/null || true
+          sudo -E apt-get -y install \
+            debootstrap qemu-user-static binfmt-support \
+            parted e2fsprogs dosfstools btrfs-progs \
+            u-boot-tools uuid-runtime openssl pigz \
+            git curl wget xz-utils lz4 zstd \
+            pv bc jq
           sudo -E apt-get -y autoremove --purge
           sudo -E apt-get clean
           sudo -E timedatectl set-timezone "${TZ}"
           echo "status=success" >> "${GITHUB_OUTPUT}"
 
-      - name: Create simulated physical disk
+      # ── 2. 合并磁盘空间 ────────────────────────────────────────────────
+      - name: Create build disk
         if: ${{ steps.init.outputs.status == 'success' && !cancelled() }}
         run: |
-          mnt_size=$(expr $(df -h /mnt | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 1)
-          root_size=$(expr $(df -h / | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 4)
+          mnt_size=$(expr $(df -h /mnt | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\\..*//') - 1)
+          root_size=$(expr $(df -h / | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\\..*//') - 4)
           sudo truncate -s "${mnt_size}G" /mnt/mnt.img
           sudo truncate -s "${root_size}G" /root.img
           sudo losetup /dev/loop6 /mnt/mnt.img
           sudo losetup /dev/loop7 /root.img
-          sudo pvcreate /dev/loop6
-          sudo pvcreate /dev/loop7
+          sudo pvcreate /dev/loop6 /dev/loop7
           sudo vgcreate github /dev/loop6 /dev/loop7
           sudo lvcreate -n runner -l 100%FREE github
           sudo mkfs.xfs -f -i sparse=0 -b size=4096 /dev/github/runner
           sudo mkdir -p /builder
           sudo mount /dev/github/runner /builder
           sudo chown -R runner:runner /builder
-          df -Th
+          echo "可用空间: $(df -h /builder | tail -1 | awk '{print $4}')"
 
-      - name: Clone ophub/amlogic-s9xxx-armbian
-        id: ophub
-        if: ${{ steps.init.outputs.status == 'success' && !cancelled() }}
-        run: |
-          git clone --depth=1 --branch "${OPHUB_BRANCH}" "${OPHUB_REPO}" /builder/ophub
-          echo "commit=$(git -C /builder/ophub rev-parse --short HEAD)" >> "${GITHUB_OUTPUT}"
-          echo "status=success" >> "${GITHUB_OUTPUT}"
-
+      # ── 3. 构建 Debian rootfs ──────────────────────────────────────────
       - name: Build Debian rootfs
         id: rootfs
-        if: ${{ steps.ophub.outputs.status == 'success' && !cancelled() }}
+        if: ${{ steps.init.outputs.status == 'success' && !cancelled() }}
         env:
           DEBIAN_RELEASE: ${{ inputs.debian_release }}
           ROOT_PASSWORD:  ${{ inputs.root_password }}
@@ -168,48 +150,44 @@ jobs:
           ROOTFS_URL:     ${{ inputs.rootfs_url }}
         run: |
           set -euo pipefail
-
           sudo mkdir -p "${ROOTFS_DIR}"
 
-          # ── 如果提供了 rootfs_url，直接下载解压，跳过 debootstrap ──────────
           if [[ -n "${ROOTFS_URL}" ]]; then
             echo "▶ 使用已有 rootfs：${ROOTFS_URL}"
             ROOTFS_ARCHIVE="/tmp/rootfs_input.tar.gz"
             wget -q --show-progress -O "${ROOTFS_ARCHIVE}" "${ROOTFS_URL}" \
-              || { echo "::error::rootfs 下载失败：${ROOTFS_URL}"; exit 1; }
-
-            # 自动识别压缩格式（.tar.gz / .tar.xz / .tar.zst / .tar.lz4）
-            echo "▶ 解压 rootfs..."
+              || { echo "::error::rootfs 下载失败"; exit 1; }
             sudo tar -xf "${ROOTFS_ARCHIVE}" -C "${ROOTFS_DIR}" \
-              || { echo "::error::rootfs 解压失败，请确认是合法的 tar 归档"; exit 1; }
+              || { echo "::error::rootfs 解压失败"; exit 1; }
             rm -f "${ROOTFS_ARCHIVE}"
-
-            # 基础校验：确认解压出了最基本的目录结构
             for _dir in etc usr bin; do
-              [[ -d "${ROOTFS_DIR}/${_dir}" ]] \
-                || { echo "::error::rootfs 缺少 /${_dir}，归档可能有误"; exit 1; }
+              [[ -d "${ROOTFS_DIR}/${_dir}" ]] || { echo "::error::rootfs 缺少 /${_dir}"; exit 1; }
             done
             echo "▶ rootfs 校验通过，跳过 debootstrap"
-
           else
-            # ── 正常 debootstrap 流程 ───────────────────────────────────────
             sudo update-binfmts --enable qemu-aarch64
-
-            echo "▶ debootstrap 第一阶段..."
-            sudo debootstrap --arch=arm64 --foreign --include=ca-certificates \
+            echo "▶ debootstrap 第一阶段 (${DEBIAN_RELEASE})..."
+            sudo debootstrap \
+              --arch=arm64 --foreign --include=ca-certificates \
               "${DEBIAN_RELEASE}" "${ROOTFS_DIR}" "${DEBIAN_MIRROR}/"
             sudo cp /usr/bin/qemu-aarch64-static "${ROOTFS_DIR}/usr/bin/"
-
             echo "▶ debootstrap 第二阶段..."
             sudo chroot "${ROOTFS_DIR}" /debootstrap/debootstrap --second-stage
           fi
 
-          # apt 源
-          printf 'deb %s/ %s main contrib non-free non-free-firmware\n'             "${DEBIAN_MIRROR}" "${DEBIAN_RELEASE}" | sudo tee "${ROOTFS_DIR}/etc/apt/sources.list" > /dev/null
-          printf 'deb %s/ %s-updates main contrib non-free non-free-firmware\n'             "${DEBIAN_MIRROR}" "${DEBIAN_RELEASE}" | sudo tee -a "${ROOTFS_DIR}/etc/apt/sources.list" > /dev/null
-          printf 'deb https://security.debian.org/debian-security %s-security main contrib non-free non-free-firmware\n'             "${DEBIAN_RELEASE}" | sudo tee -a "${ROOTFS_DIR}/etc/apt/sources.list" > /dev/null
+          # ── apt 源 ──────────────────────────────────────────────────────
+          printf 'deb %s/ %s main contrib non-free non-free-firmware\n' \
+            "${DEBIAN_MIRROR}" "${DEBIAN_RELEASE}" \
+            | sudo tee    "${ROOTFS_DIR}/etc/apt/sources.list" > /dev/null
+          printf 'deb %s/ %s-updates main contrib non-free non-free-firmware\n' \
+            "${DEBIAN_MIRROR}" "${DEBIAN_RELEASE}" \
+            | sudo tee -a "${ROOTFS_DIR}/etc/apt/sources.list" > /dev/null
+          printf 'deb https://security.debian.org/debian-security %s-security main contrib non-free non-free-firmware\n' \
+            "${DEBIAN_RELEASE}" \
+            | sudo tee -a "${ROOTFS_DIR}/etc/apt/sources.list" > /dev/null
 
-          echo "▶ 安装软件包..."
+          # ── 安装基础包 ──────────────────────────────────────────────────
+          echo "▶ 安装基础软件包..."
           sudo chroot "${ROOTFS_DIR}" /bin/bash -c "
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
@@ -218,67 +196,132 @@ jobs:
               locales tzdata \
               iproute2 network-manager ifupdown \
               net-tools iputils-ping dnsutils \
-              bash-completion htop nano vim \
-              u-boot-tools initramfs-tools \
+              wireless-tools chrony \
+              bash-completion htop nano vim nftables \
+              u-boot-tools initramfs-tools parted \
               btrfs-progs e2fsprogs dosfstools \
-              lsof file procps cron \
+              lsof file procps cron ntpdate bsdextrautils \
+              wireless-regdb \
               --no-install-recommends
+            # wpasupplicant 单独安装确保 libnl 依赖完整
+            apt-get install -y wpasupplicant
             apt-get clean && rm -rf /var/lib/apt/lists/*
           "
 
-          # 时区
+          # ── 额外包（可选）───────────────────────────────────────────────
+          EXTRA_PKGS="${{ inputs.extra_packages || '' }}"
+          if [[ -n "${EXTRA_PKGS}" ]]; then
+            echo "▶ 安装额外包: ${EXTRA_PKGS}"
+            sudo chroot "${ROOTFS_DIR}" /bin/bash -c "
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq
+              apt-get install -y ${EXTRA_PKGS} --no-install-recommends
+              apt-get clean && rm -rf /var/lib/apt/lists/*
+            "
+          fi
+
+          # ── 时区 ────────────────────────────────────────────────────────
           sudo chroot "${ROOTFS_DIR}" ln -sf "/usr/share/zoneinfo/${TZ_VAL}" /etc/localtime
           echo "${TZ_VAL}" | sudo tee "${ROOTFS_DIR}/etc/timezone" > /dev/null
-          sudo chroot "${ROOTFS_DIR}" bash -c "DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -f noninteractive tzdata"
+          sudo chroot "${ROOTFS_DIR}" bash -c \
+            "DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -f noninteractive tzdata"
 
-          # locale
+          # ── locale ──────────────────────────────────────────────────────
           sudo chroot "${ROOTFS_DIR}" bash -c "
             sed -i 's/^# *\(en_US.UTF-8\)/\1/' /etc/locale.gen
             locale-gen
             echo 'LANG=en_US.UTF-8' > /etc/default/locale
           "
 
-          # hostname
+          # ── hostname ────────────────────────────────────────────────────
           echo "${HOSTNAME_VAL}" | sudo tee "${ROOTFS_DIR}/etc/hostname" > /dev/null
-          printf '127.0.0.1\tlocalhost\n127.0.1.1\t%s\n::1\tlocalhost ip6-localhost ip6-loopback\n'             "${HOSTNAME_VAL}" | sudo tee "${ROOTFS_DIR}/etc/hosts" > /dev/null
+          printf '127.0.0.1\tlocalhost\n127.0.1.1\t%s\n::1\tlocalhost ip6-localhost ip6-loopback\n' \
+            "${HOSTNAME_VAL}" | sudo tee "${ROOTFS_DIR}/etc/hosts" > /dev/null
 
-          # SSH（base64 解码写入，避免 heredoc 在 YAML 里的问题）
+          # ── SSH ─────────────────────────────────────────────────────────
           sudo mkdir -p -m 0755 "${ROOTFS_DIR}/var/run/sshd"
-          echo 'UG9ydCAyMgpQZXJtaXRSb290TG9naW4geWVzClBhc3N3b3JkQXV0aGVudGljYXRpb24geWVzClB1YmtleUF1dGhlbnRpY2F0aW9uIHllcwpVc2VQQU0geWVzClgxMUZvcndhcmRpbmcgbm8KUHJpbnRNb3RkIG5vCkFjY2VwdEVudiBMQU5HIExDXyoKU3Vic3lzdGVtIHNmdHAgL3Vzci9saWIvb3BlbnNzaC9zZnRwLXNlcnZlcgo=' | base64 -d | sudo tee "${ROOTFS_DIR}/etc/ssh/sshd_config" > /dev/null
+          echo 'UG9ydCAyMgpQZXJtaXRSb290TG9naW4geWVzClBhc3N3b3JkQXV0aGVudGljYXRpb24geWVzClB1YmtleUF1dGhlbnRpY2F0aW9uIHllcwpVc2VQQU0geWVzClgxMUZvcndhcmRpbmcgbm8KUHJpbnRNb3RkIG5vCkFjY2VwdEVudiBMQU5HIExDXyoKU3Vic3lzdGVtIHNmdHAgL3Vzci9saWIvb3BlbnNzaC9zZnRwLXNlcnZlcgo=' \
+            | base64 -d | sudo tee "${ROOTFS_DIR}/etc/ssh/sshd_config" > /dev/null
           sudo chroot "${ROOTFS_DIR}" systemctl enable ssh 2>/dev/null || true
+          sudo chroot "${ROOTFS_DIR}" systemctl enable chrony 2>/dev/null || true
+          sudo chroot "${ROOTFS_DIR}" systemctl enable nftables 2>/dev/null || true
 
-          # root 密码
+          # ── root 密码 ───────────────────────────────────────────────────
           ROOT_HASH="$(openssl passwd -6 "${ROOT_PASSWORD}")"
           sudo sed -i "s|^root:[^:]*|root:${ROOT_HASH}|" "${ROOTFS_DIR}/etc/shadow"
 
-          # NetworkManager
+          # ── NetworkManager ──────────────────────────────────────────────
           sudo mkdir -p "${ROOTFS_DIR}/etc/NetworkManager"
-          echo 'W21haW5dCnBsdWdpbnM9aWZ1cGRvd24sa2V5ZmlsZQpkaGNwPWludGVybmFsCltpZnVwZG93bl0KbWFuYWdlZD10cnVlCg==' | base64 -d | sudo tee "${ROOTFS_DIR}/etc/NetworkManager/NetworkManager.conf" > /dev/null
-          printf 'auto lo\niface lo inet loopback\n' | sudo tee "${ROOTFS_DIR}/etc/network/interfaces" > /dev/null
+          echo 'W21haW5dCnBsdWdpbnM9aWZ1cGRvd24sa2V5ZmlsZQpkaGNwPWludGVybmFsCltpZnVwZG93bl0KbWFuYWdlZD10cnVlCg==' \
+            | base64 -d | sudo tee "${ROOTFS_DIR}/etc/NetworkManager/NetworkManager.conf" > /dev/null
+          printf 'auto lo\niface lo inet loopback\n' \
+            | sudo tee "${ROOTFS_DIR}/etc/network/interfaces" > /dev/null
           sudo chroot "${ROOTFS_DIR}" systemctl enable NetworkManager 2>/dev/null || true
 
-          # systemd 超时优化
+          # ── 禁用不必要的服务 ────────────────────────────────────────────
+          sudo chroot "${ROOTFS_DIR}" systemctl disable networking.service 2>/dev/null || true
+          sudo chroot "${ROOTFS_DIR}" systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
+          sudo chroot "${ROOTFS_DIR}" systemctl disable e2scrub_reap.service 2>/dev/null || true
+          sudo chroot "${ROOTFS_DIR}" systemctl disable systemd-pstore.service 2>/dev/null || true
+
+          # ── systemd 超时优化 ────────────────────────────────────────────
           SYS_CONF="${ROOTFS_DIR}/etc/systemd/system.conf"
           [[ -f "${SYS_CONF}" ]] && {
             sudo sed -i "s|^#*DefaultTimeoutStartSec.*|DefaultTimeoutStartSec=10s|g" "${SYS_CONF}"
             sudo sed -i "s|^#*DefaultTimeoutStopSec.*|DefaultTimeoutStopSec=10s|g"   "${SYS_CONF}"
           } || true
 
-          # shell 环境
-          echo 'CmlmIFsgLXggL3Vzci9iaW4vZGlyY29sb3JzIF07IHRoZW4KICAgIGV2YWwgIiQoZGlyY29sb3JzIC1iKSIKICAgIGFsaWFzIGxzPSdscyAtLWNvbG9yPWF1dG8nCiAgICBhbGlhcyBsbD0nbHMgLWxoIC0tY29sb3I9YXV0bycKICAgIGFsaWFzIGdyZXA9J2dyZXAgLS1jb2xvcj1hdXRvJwpmaQpQUzE9J1xbXGVbMTszMm1cXVx1QFxoXFtcZVswbVxdOlxbXGVbMTszNG1cXVx3XFtcZVswbVxdXCQgJwo=' | base64 -d | sudo tee -a "${ROOTFS_DIR}/root/.bashrc" > /dev/null
-
-          # rc.local
+          # ── rc.local ────────────────────────────────────────────────────
           if [[ ! -f "${ROOTFS_DIR}/etc/rc.local" ]]; then
             printf '#!/bin/sh -e\nexit 0\n' | sudo tee "${ROOTFS_DIR}/etc/rc.local" > /dev/null
             sudo chmod +x "${ROOTFS_DIR}/etc/rc.local"
           fi
 
-          # uInitrd 钩子（u-boot 需要 uInitrd 格式的 initramfs）
+          # ── 注入 debian 平台脚本 ────────────────────────────────────────
+          sudo mkdir -p "${ROOTFS_DIR}/usr/lib/debian"
+          sudo mkdir -p "${ROOTFS_DIR}/etc/default"
+          sudo mkdir -p "${ROOTFS_DIR}/lib/systemd/system"
+
+          for f in debian/debian-firstrun \
+                   debian/debian-hardware-optimization \
+                   debian/debian-resize-filesystem \
+                   debian/debian-zram-config; do
+            sudo cp "${f}" "${ROOTFS_DIR}/usr/lib/debian/$(basename ${f})"
+          done
+          sudo chmod +x "${ROOTFS_DIR}/usr/lib/debian/"*
+
+          sudo cp debian/debian-release       "${ROOTFS_DIR}/etc/debian-release"
+          sudo cp debian/debian-firstrun-etc  "${ROOTFS_DIR}/etc/default/debian-firstrun"
+          sudo cp debian/NetworkManager.conf  "${ROOTFS_DIR}/etc/NetworkManager/NetworkManager.conf"
+          sudo cp debian/debian-update        "${ROOTFS_DIR}/usr/local/bin/debian-update"
+          sudo chmod +x "${ROOTFS_DIR}/usr/local/bin/debian-update"
+
+          # ── systemd service 文件 ────────────────────────────────────────
+          for f in systemd/debian-firstrun.service \
+                   systemd/debian-hardware-optimize.service \
+                   systemd/debian-resize-filesystem.service \
+                   systemd/debian-zram-config.service \
+                   systemd/plymouth-killer.service; do
+            sudo cp "${f}" "${ROOTFS_DIR}/lib/systemd/system/"
+          done
+
+          sudo chroot "${ROOTFS_DIR}" systemctl enable debian-firstrun.service
+          sudo chroot "${ROOTFS_DIR}" systemctl enable debian-hardware-optimize.service
+          sudo chroot "${ROOTFS_DIR}" systemctl enable debian-resize-filesystem.service
+          sudo chroot "${ROOTFS_DIR}" systemctl enable debian-zram-config.service
+          sudo chroot "${ROOTFS_DIR}" systemctl enable plymouth-killer.service
+
+          # ── 禁用 plymouth initramfs hook ────────────────────────────────
+          sudo mkdir -p "${ROOTFS_DIR}/usr/share/initramfs-tools/hooks"
+          sudo ln -sf /dev/null "${ROOTFS_DIR}/usr/share/initramfs-tools/hooks/plymouth"
+
+          # ── uInitrd 钩子 ────────────────────────────────────────────────
           sudo mkdir -p "${ROOTFS_DIR}/etc/initramfs/post-update.d"
-          echo 'IyEvYmluL2Jhc2ggLWUKdGVtcG5hbWU9Ii9ib290L3VJbml0cmQtJDEiCm1raW1hZ2UgLUEgYXJtNjQgLU8gbGludXggLVQgcmFtZGlzayAtQyBnemlwIC1uIHVJbml0cmQgLWQgIiQyIiAiJHt0ZW1wbmFtZX0iCmxuIC1zZnYgIiQoYmFzZW5hbWUgXCIke3RlbXBuYW1lfVwiKSIgL2Jvb3QvdUluaXRyZCB8fCBtdiAtdiAiJHt0ZW1wbmFtZX0iIC9ib290L3VJbml0cmQKZXhpdCAwCg==' | base64 -d | sudo tee "${ROOTFS_DIR}/etc/initramfs/post-update.d/99-uboot" > /dev/null
+          echo 'IyEvYmluL2Jhc2ggLWUKdGVtcG5hbWU9Ii9ib290L3VJbml0cmQtJDEiCm1raW1hZ2UgLUEgYXJtNjQgLU8gbGludXggLVQgcmFtZGlzayAtQyBnemlwIC1uIHVJbml0cmQgLWQgIiQyIiAiJHt0ZW1wbmFtZX0iCmxuIC1zZnYgIiQoYmFzZW5hbWUgXCIke3RlbXBuYW1lfVwiKSIgL2Jvb3QvdUluaXRyZCB8fCBtdiAtdiAiJHt0ZW1wbmFtZX0iIC9ib290L3VJbml0cmQKZXhpdCAwCg==' \
+            | base64 -d | sudo tee "${ROOTFS_DIR}/etc/initramfs/post-update.d/99-uboot" > /dev/null
           sudo chmod +x "${ROOTFS_DIR}/etc/initramfs/post-update.d/99-uboot"
 
-          # 禁止 update-initramfs 自动运行（rebuild 接管）
+          # ── 禁止 update-initramfs 自动运行 ──────────────────────────────
           sudo mkdir -p "${ROOTFS_DIR}/etc/initramfs-tools"
           INITRAMFS_CONF="${ROOTFS_DIR}/etc/initramfs-tools/update-initramfs.conf"
           if [[ -f "${INITRAMFS_CONF}" ]]; then
@@ -287,19 +330,19 @@ jobs:
             echo "update_initramfs=no" | sudo tee "${INITRAMFS_CONF}" > /dev/null
           fi
 
-          # fstab（rebuild 会 sed 替换 LABEL=ROOTFS 行的 UUID）
-          printf 'LABEL=ROOTFS\t/\text4\tdefaults,noatime,nodiratime,commit=600,errors=remount-ro\t0 1\n' | sudo tee "${ROOTFS_DIR}/etc/fstab" > /dev/null
-          printf 'LABEL=BOOT\t/boot\tvfat\tdefaults\t0 2\n' | sudo tee -a "${ROOTFS_DIR}/etc/fstab" > /dev/null
+          # ── fstab ───────────────────────────────────────────────────────
+          printf 'LABEL=ROOTFS\t/\text4\tdefaults,noatime,nodiratime,commit=600,errors=remount-ro\t0 1\n' \
+            | sudo tee    "${ROOTFS_DIR}/etc/fstab" > /dev/null
+          printf 'LABEL=BOOT\t/boot\tvfat\tdefaults\t0 2\n' \
+            | sudo tee -a "${ROOTFS_DIR}/etc/fstab" > /dev/null
 
-          # 预建 rebuild 需要的目录（debootstrap 不含内核，故无此目录）
           sudo mkdir -p "${ROOTFS_DIR}/usr/lib/modules"
-
-          # 清理 qemu
           sudo rm -f "${ROOTFS_DIR}/usr/bin/qemu-aarch64-static"
 
           echo "▶ rootfs 完成: $(sudo du -sh ${ROOTFS_DIR} | awk '{print $1}')"
           echo "status=success" >> "${GITHUB_OUTPUT}"
 
+      # ── 4. 打包 rootfs 为镜像 ─────────────────────────────────────────
       - name: Pack rootfs into image
         id: pack
         if: ${{ steps.rootfs.outputs.status == 'success' && !cancelled() }}
@@ -313,25 +356,18 @@ jobs:
           IMG_PATH="${IMG_OUTDIR}/${IMG_NAME}"
 
           USED_MB=$(sudo du -sm "${ROOTFS_DIR}" | awk '{print $1}')
-          # 4MB skip zone + rootfs + 64MB margin
           IMG_MB=$(( USED_MB + 4 + 64 ))
           echo "▶ rootfs ${USED_MB} MiB → 镜像 ${IMG_MB} MiB"
 
-          # 创建带 MBR 分区表的镜像（rebuild 需要能 losetup -P 得到 p1/p2）
           truncate -s "${IMG_MB}M" "${IMG_PATH}"
-
-          # MBR 分区表，单分区从 4MB 开始（留 skip zone 给 u-boot）
           sudo parted -s "${IMG_PATH}" mklabel msdos
           sudo parted -s "${IMG_PATH}" mkpart primary ext4 4MiB 100%
 
-          # losetup -P 识别分区
           LOOP=$(sudo losetup -P -f --show "${IMG_PATH}")
-          echo "▶ loop device: ${LOOP}, partition: ${LOOP}p1"
+          echo "▶ loop: ${LOOP}"
 
-          # 格式化 p1 为 ext4，标签 ROOTFS（rebuild 会识别）
           sudo mkfs.ext4 -F -q -L "ROOTFS" -b 4096 "${LOOP}p1"
 
-          # 挂载并写入 rootfs
           MNT="/mnt/rootfs_pack_$$"
           sudo mkdir -p "${MNT}"
           sudo mount "${LOOP}p1" "${MNT}"
@@ -342,66 +378,43 @@ jobs:
           sudo rmdir "${MNT}"
 
           echo "▶ $(du -sh ${IMG_PATH})"
-          echo "img_name=${IMG_NAME}" >> "${GITHUB_OUTPUT}"
-          echo "img_path=${IMG_PATH}" >> "${GITHUB_OUTPUT}"
+          echo "img_name=${IMG_NAME}"   >> "${GITHUB_OUTPUT}"
+          echo "img_path=${IMG_PATH}"   >> "${GITHUB_OUTPUT}"
           echo "img_outdir=${IMG_OUTDIR}" >> "${GITHUB_OUTPUT}"
-          echo "status=success" >> "${GITHUB_OUTPUT}"
+          echo "status=success"         >> "${GITHUB_OUTPUT}"
 
-      - name: Rebuild image (inject uboot + kernel + platform files)
+      # ── 5. Rebuild（注入 uboot + kernel，使用本地 rebuild 工具链）─────
+      - name: Rebuild image
         id: rebuild
         if: ${{ steps.pack.outputs.status == 'success' && !cancelled() }}
         env:
-          BOARD:       ${{ inputs.armbian_board }}
           KERNEL:      ${{ inputs.armbian_kernel }}
           AUTO_KERNEL: ${{ inputs.auto_kernel }}
           FSTYPE:      ${{ inputs.armbian_fstype }}
           BUILDER:     ${{ inputs.builder_name }}
         run: |
           set -euo pipefail
-          OPHUB_DIR="/builder/ophub"
+          REBUILD_DIR="${GITHUB_WORKSPACE}/rebuild"
           IMG_PATH="${{ steps.pack.outputs.img_path }}"
           IMG_OUTDIR="${{ steps.pack.outputs.img_outdir }}"
 
-          # rebuild 用相对路径定位 model_database.conf，必须在仓库目录下运行
-          cd "${OPHUB_DIR}"
-
-          # ── 删除不需要的 armbian 管理脚本和软件管理子脚本 ──────────────────
-          # 保留：etc/（系统配置）、usr/lib/firmware/（WiFi固件）、usr/bin/uuidgen
-          # 保留：platform-files/amlogic/rootfs/usr/sbin/armbian-install（eMMC安装）
-          # 删除：通用管理脚本（armbian-update/fix/apt/docker/swap 等）
-          rm -f build-armbian/armbian-files/common-files/usr/sbin/armbian-apt
-          rm -f build-armbian/armbian-files/common-files/usr/sbin/armbian-ddbr
-          rm -f build-armbian/armbian-files/common-files/usr/sbin/armbian-docker
-          rm -f build-armbian/armbian-files/common-files/usr/sbin/armbian-fix
-          rm -f build-armbian/armbian-files/common-files/usr/sbin/armbian-kernel
-          rm -f build-armbian/armbian-files/common-files/usr/sbin/armbian-software
-          rm -f build-armbian/armbian-files/common-files/usr/sbin/armbian-swap
-          rm -f build-armbian/armbian-files/common-files/usr/sbin/armbian-sync
-          rm -f build-armbian/armbian-files/common-files/usr/sbin/armbian-tf
-          rm -f build-armbian/armbian-files/common-files/usr/sbin/armbian-update
-          rm -f build-armbian/armbian-files/common-files/usr/sbin/balethirq.pl
-          # 删除：软件管理子脚本目录
-          rm -rf build-armbian/armbian-files/common-files/usr/share/ophub/
-          echo "▶ 已删除 armbian 管理脚本和软件管理子脚本"
+          # rebuild 脚本以 PWD 为工作目录，build-armbian/ 必须在同级
+          cd "${REBUILD_DIR}"
 
           mkdir -p build/output/images
           cp -v "${IMG_PATH}" build/output/images/
 
-          # -s 用斜线分隔 boot_mb/root_mb（不是下划线）
-          # auto_kernel=true 时让 rebuild 自动选最新版本，不传 -k
-          # rk35xx 机型的内核 tag 由 model_database.conf 自动决定，无需 -u 干预
           ARGS="-b ${BOARD} -a ${AUTO_KERNEL} -t ${FSTYPE}"
-          ARGS="${ARGS} -s 256/1024 -r ophub/kernel -u stable -n ${BUILDER}"
-          # 当 auto_kernel=false 时才传 -k（且过滤掉 rk35xx/ 前缀）
+          ARGS="${ARGS} -s 512/3072 -r ophub/kernel -u rk35xx -n ${BUILDER}"
           if [[ "${AUTO_KERNEL}" != "true" ]]; then
-            KERNEL_VER="${KERNEL##*/}"  # 去掉 rk35xx/ 等前缀
+            KERNEL_VER="${KERNEL##*/}"
             ARGS="${ARGS} -k ${KERNEL_VER}"
           fi
 
           echo "▶ 执行: sudo ./rebuild ${ARGS}"
           sudo ./rebuild ${ARGS}
 
-          OUTPUT_DIR="${OPHUB_DIR}/build/output/images"
+          OUTPUT_DIR="${REBUILD_DIR}/build/output/images"
           ls -lh "${OUTPUT_DIR}/"
 
           PACKAGED_FILE="$(ls ${OUTPUT_DIR}/*.img.gz 2>/dev/null | head -1)"
@@ -410,16 +423,17 @@ jobs:
           mv -v "${OUTPUT_DIR}"/*.img.gz* "${IMG_OUTDIR}/" 2>/dev/null || true
 
           echo "PACKAGED_OUTPUTPATH=${IMG_OUTDIR}" >> "${GITHUB_ENV}"
-          echo "PACKAGED_STATUS=success" >> "${GITHUB_ENV}"
-          echo "status=success" >> "${GITHUB_OUTPUT}"
+          echo "PACKAGED_STATUS=success"           >> "${GITHUB_ENV}"
+          echo "status=success"                    >> "${GITHUB_OUTPUT}"
           ls -lh "${IMG_OUTDIR}/"
 
+      # ── 6. 发布到 Release ─────────────────────────────────────────────
       - name: Upload image to Release
         uses: ncipollo/release-action@main
         if: ${{ env.PACKAGED_STATUS == 'success' && !cancelled() }}
         with:
-          tag: "Debian_${{ inputs.debian_release }}_${{ inputs.armbian_board }}_${{ inputs.armbian_kernel }}_${{ inputs.armbian_fstype }}"
-          name: "Debian ${{ inputs.debian_release }} · ${{ inputs.armbian_board }} · ${{ inputs.armbian_kernel }}"
+          tag: "Debian_${{ inputs.debian_release }}_panther-x2_${{ inputs.armbian_kernel }}_${{ inputs.armbian_fstype }}"
+          name: "Debian ${{ inputs.debian_release }} · panther-x2 · ${{ inputs.armbian_kernel }}"
           artifacts: "${{ env.PACKAGED_OUTPUTPATH }}/*"
           allowUpdates: true
           removeArtifacts: false
@@ -427,15 +441,13 @@ jobs:
           makeLatest: true
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
-            ## Debian ${{ inputs.debian_release }} for Amlogic ${{ inputs.armbian_board }}
+            ## Debian ${{ inputs.debian_release }} for panther-x2 (RK3566)
 
             | 参数 | 值 |
             |------|-----|
             | Debian 版本 | `${{ inputs.debian_release }}` |
-            | 机型 | `${{ inputs.armbian_board }}` |
             | 内核 | `${{ inputs.armbian_kernel }}` |
             | 文件系统 | `${{ inputs.armbian_fstype }}` |
-            | ophub commit | `${{ steps.ophub.outputs.commit }}` |
             | 构建时间 | `${{ github.run_started_at }}` |
 
             ## 使用说明
@@ -444,4 +456,4 @@ jobs:
             2. 用 balenaEtcher 或 `dd` 写入 TF 卡 / U 盘
             3. SSH：`root` / `${{ inputs.root_password }}`
             4. 安装到 eMMC：`armbian-install`
-            5. 更新内核：`armbian-update`
+            5. 更新内核：`debian-update`
