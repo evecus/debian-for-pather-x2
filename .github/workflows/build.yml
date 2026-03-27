@@ -177,7 +177,7 @@ jobs:
           cd "${REBUILD_DIR}"
 
           KERNEL_VER="${KERNEL##*/}"
-          echo "▶ 执行: sudo ./rebuild -b ${BOARD} -a true -t ${FSTYPE} -s 256/1024 -r ophub/kernel -u rk35xx -k ${KERNEL_VER} -n ${BUILDER}"
+          echo "▶ 执行: sudo ./rebuild -b ${BOARD} -a true -t ${FSTYPE} -s 256/1024 -r ophub/kernel -u stable -k 6.12.78"
           sudo ./rebuild \
             -b ${BOARD} \
             -a true \
