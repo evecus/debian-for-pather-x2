@@ -1,9 +1,7 @@
 #!/bin/bash
-# Copyright (c) Authors: https://www.armbian.com/authors
-# Modified for Debian / panther-x2 (RK3566) — removed unrelated board workarounds
 
-. /etc/debian-release
-. /usr/lib/debian/debian-common
+. /etc/ubuntu-release
+. /usr/lib/ubuntu/ubuntu-common
 
 case "$1" in
 	start)
@@ -18,16 +16,16 @@ case "$1" in
 		fi
 
 		# 写入安装 UUID
-		if ! grep -q "^INSTALL_UUID=" /etc/debian-release 2>/dev/null; then
+		if ! grep -q "^INSTALL_UUID=" /etc/ubuntu-release 2>/dev/null; then
 			UUID="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || true)"
-			[[ -n "${UUID}" ]] && echo "INSTALL_UUID=\"${UUID}\"" >> /etc/debian-release
+			[[ -n "${UUID}" ]] && echo "INSTALL_UUID=\"${UUID}\"" >> /etc/ubuntu-release
 			echo "### [firstrun] UUID=${UUID}" >> "${Log}"
 		fi
 
 		# 禁用 purple newt 背景
 		[[ -f /etc/newt/palette ]] && sed -i 's/magenta/blue/g' /etc/newt/palette
 
-		systemctl disable debian-firstrun.service
+		systemctl disable ubuntu-firstrun.service
 		echo "### [firstrun] done" >> "${Log}"
 		exit 0
 		;;
