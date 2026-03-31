@@ -10,8 +10,8 @@ After=ssh.service
 [Service]
 Type=simple
 RemainAfterExit=yes
-EnvironmentFile=/etc/default/debian-firstrun
-ExecStart=/usr/lib/debian/debian-firstrun start
+EnvironmentFile=/etc/default/ubuntu-firstrun
+ExecStart=/usr/lib/ubuntu/ubuntu-firstrun start
 TimeoutStartSec=2min
 
 [Install]

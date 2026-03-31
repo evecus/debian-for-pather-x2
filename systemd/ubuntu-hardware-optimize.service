@@ -3,15 +3,15 @@
 # This service may block the boot process for up to 2 minutes
 
 [Unit]
-Description=Debian hardware optimization
+Description=Ubuntu hardware optimization
 Before=basic.target
 After=sysinit.target local-fs.target armbian-hardware-monitor.target
 DefaultDependencies=no
 
 [Service]
 Type=oneshot
-ExecStart=/usr/lib/debian/debian-hardware-optimization start
-ExecStop=/usr/lib/debian/debian-hardware-optimization stop
+ExecStart=/usr/lib/ubuntu/ubuntu-hardware-optimization start
+ExecStop=/usr/lib/ubuntu/ubuntu-hardware-optimization stop
 RemainAfterExit=yes
 TimeoutStartSec=2min
 
