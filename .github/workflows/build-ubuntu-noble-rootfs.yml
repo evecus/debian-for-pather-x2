@@ -284,7 +284,6 @@ jobs:
           sudo chroot "${ROOTFS_DIR}" systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
           sudo chroot "${ROOTFS_DIR}" systemctl disable e2scrub_reap.service 2>/dev/null || true
           sudo chroot "${ROOTFS_DIR}" systemctl disable systemd-pstore.service 2>/dev/null || true
-          sudo chroot "${ROOTFS_DIR}" apt-get remove -y netplan.io 2>/dev/null || true
 
           echo "▶ ubuntu platform scripts injected"
 
