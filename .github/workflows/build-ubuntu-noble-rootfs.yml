@@ -259,8 +259,8 @@ jobs:
           # /etc/ubuntu-release
           sudo cp ubuntu/ubuntu-release          "${ROOTFS_DIR}/etc/ubuntu-release"
           sudo cp ubuntu/ubuntu-firstrun-etc     "${ROOTFS_DIR}/etc/default/ubuntu-firstrun"
-          sudo cp debian/ubuntu-zram-config-etc  "${ROOTFS_DIR}/etc/default/ubuntu-zram-config"
-          sudo cp debian/ubuntu-ramlog           "${ROOTFS_DIR}/etc/default/ubuntu-ramlog"
+          sudo cp ubuntu/ubuntu-zram-config-etc  "${ROOTFS_DIR}/etc/default/ubuntu-zram-config"
+          sudo cp ubuntu/ubuntu-ramlog           "${ROOTFS_DIR}/etc/default/ubuntu-ramlog"
           sudo cp ubuntu/NetworkManager.conf     "${ROOTFS_DIR}/etc/NetworkManager/NetworkManager.conf"
           sudo cp ubuntu/u-u                     "${ROOTFS_DIR}/usr/local/bin/u-u"
           sudo chmod +x "${ROOTFS_DIR}/usr/local/bin/u-u"
