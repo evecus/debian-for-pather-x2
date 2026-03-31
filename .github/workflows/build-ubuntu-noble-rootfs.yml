@@ -47,8 +47,6 @@ on:
         default: ""
         type: string
 
-  schedule:
-    - cron: "0 0 1 * *"
 
 env:
   TZ: UTC
