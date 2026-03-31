@@ -133,8 +133,24 @@ jobs:
           echo "▶ debootstrap 第二阶段..."
           sudo chroot "${ROOTFS_DIR}" /debootstrap/debootstrap --second-stage
 
-          # ── apt 源（Ubuntu ports，适用于 arm64）──────────────────────
-          # Ubuntu noble 起 deb822 格式为推荐格式，这里保持传统 .list 兼容性
+          # ── 关键修复：挂载虚拟文件系统 ──────────────────────────────────────
+          echo "▶ 挂载虚拟文件系统..."
+          sudo mount -t proc /proc "${ROOTFS_DIR}/proc"
+          sudo mount -t sysfs /sys "${ROOTFS_DIR}/sys"
+          sudo mount --bind /dev "${ROOTFS_DIR}/dev"
+          sudo mount --bind /dev/pts "${ROOTFS_DIR}/dev/pts"
+
+          # 使用 trap 确保无论脚本是否报错，最后都会执行卸载
+          function cleanup {
+            echo "▶ 正在卸载虚拟文件系统..."
+            sudo umount -l "${ROOTFS_DIR}/proc" || true
+            sudo umount -l "${ROOTFS_DIR}/sys" || true
+            sudo umount -l "${ROOTFS_DIR}/dev/pts" || true
+            sudo umount -l "${ROOTFS_DIR}/dev" || true
+          }
+          trap cleanup EXIT
+
+          # ── apt 源配置 ────────────────────────────────────────────────
           sudo tee "${ROOTFS_DIR}/etc/apt/sources.list" > /dev/null <<EOF
           deb ${UBUNTU_MIRROR} ${UBUNTU_RELEASE} main restricted universe multiverse
           deb ${UBUNTU_MIRROR} ${UBUNTU_RELEASE}-updates main restricted universe multiverse
@@ -147,21 +163,20 @@ jobs:
           sudo chroot "${ROOTFS_DIR}" /bin/bash -c "
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
+            # 显式安装并标记为手动安装，防止被 autoremove 清理
             apt-get install -y \
               openssh-server sudo curl wget ca-certificates \
               locales tzdata \
-              iproute2 network-manager \
+              iproute2 network-manager netplan.io \
               net-tools iputils-ping dnsutils \
               wireless-tools chrony \
               bash-completion htop nano nftables \
               u-boot-tools initramfs-tools parted \
               btrfs-progs e2fsprogs dosfstools \
               lsof file procps cron ntpdate bsdextrautils \
-              wireless-regdb \
+              wireless-regdb wpasupplicant \
               --no-install-recommends
-            # wpasupplicant 单独安装（不加 --no-install-recommends）
-            # 确保 libnl 系列依赖完整装入，避免 NetworkManager 持续重试
-            apt-get install -y wpasupplicant
+            
             apt-get clean && rm -rf /var/lib/apt/lists/*
           "
 
@@ -176,45 +191,37 @@ jobs:
             "
           fi
 
-          # ── 时区 ──────────────────────────────────────────────────────
+          # ── 配置：时区/Locale/Hostname ───────────────────────────────
           sudo chroot "${ROOTFS_DIR}" ln -sf "/usr/share/zoneinfo/${TZ_VAL}" /etc/localtime
           echo "${TZ_VAL}" | sudo tee "${ROOTFS_DIR}/etc/timezone" > /dev/null
-          sudo chroot "${ROOTFS_DIR}" bash -c \
-            "DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -f noninteractive tzdata"
-
-          # ── locale ────────────────────────────────────────────────────
+          sudo chroot "${ROOTFS_DIR}" bash -c "DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -f noninteractive tzdata"
+          
           sudo chroot "${ROOTFS_DIR}" bash -c "
             sed -i 's/^# *\(en_US.UTF-8\)/\1/' /etc/locale.gen
             locale-gen
             echo 'LANG=en_US.UTF-8' > /etc/default/locale
           "
 
-          # ── hostname ──────────────────────────────────────────────────
           echo "${HOSTNAME_VAL}" | sudo tee "${ROOTFS_DIR}/etc/hostname" > /dev/null
           printf '127.0.0.1\tlocalhost\n127.0.1.1\t%s\n::1\tlocalhost ip6-localhost ip6-loopback\n' \
             "${HOSTNAME_VAL}" | sudo tee "${ROOTFS_DIR}/etc/hosts" > /dev/null
 
-          # ── SSH（base64 写入，避免 YAML 内 heredoc 缩进问题）─────────
-          # 解码内容：Port 22 / PermitRootLogin yes / PasswordAuthentication yes 等
+          # ── SSH & 服务配置 ──────────────────────────────────────────
           sudo mkdir -p -m 0755 "${ROOTFS_DIR}/var/run/sshd"
           echo 'UG9ydCAyMgpQZXJtaXRSb290TG9naW4geWVzClBhc3N3b3JkQXV0aGVudGljYXRpb24geWVzClB1YmtleUF1dGhlbnRpY2F0aW9uIHllcwpVc2VQQU0geWVzClgxMUZvcndhcmRpbmcgbm8KUHJpbnRNb3RkIG5vCkFjY2VwdEVudiBMQU5HIExDXyoKU3Vic3lzdGVtIHNmdHAgL3Vzci9saWIvb3BlbnNzaC9zZnRwLXNlcnZlcgo=' \
             | base64 -d | sudo tee "${ROOTFS_DIR}/etc/ssh/sshd_config" > /dev/null
-          sudo chroot "${ROOTFS_DIR}" systemctl enable ssh 2>/dev/null || true
-          sudo chroot "${ROOTFS_DIR}" systemctl enable chrony 2>/dev/null || true
-          sudo chroot "${ROOTFS_DIR}" systemctl enable nftables 2>/dev/null || true
-
-          # ── root 密码 ─────────────────────────────────────────────────
+          
+          # 设置 Root 密码
           ROOT_HASH="$(openssl passwd -6 "${ROOT_PASSWORD}")"
           sudo sed -i "s|^root:[^:]*|root:${ROOT_HASH}|" "${ROOTFS_DIR}/etc/shadow"
 
-          # ── 网络（NetworkManager）────────────────────────────────────
-          # 解码内容：[main] plugins=ifupdown,keyfile dhcp=internal [ifupdown] managed=true
+          # ── 网络配置 (NetworkManager) ────────────────────────────────
           sudo mkdir -p "${ROOTFS_DIR}/etc/NetworkManager"
           echo 'W21haW5dCnBsdWdpbnM9aWZ1cGRvd24sa2V5ZmlsZQpkaGNwPWludGVybmFsCltpZnVwZG93bl0KbWFuYWdlZD10cnVlCg==' \
             | base64 -d | sudo tee "${ROOTFS_DIR}/etc/NetworkManager/NetworkManager.conf" > /dev/null
-          printf 'auto lo\niface lo inet loopback\n' \
-            | sudo tee "${ROOTFS_DIR}/etc/network/interfaces" > /dev/null
-          sudo chroot "${ROOTFS_DIR}" systemctl enable NetworkManager 2>/dev/null || true
+          
+          # 启用服务
+          sudo chroot "${ROOTFS_DIR}" systemctl enable ssh NetworkManager chrony nftables 2>/dev/null || true
 
           # ── Ubuntu 特有：禁用 snapd（嵌入式环境不需要）───────────────
           sudo chroot "${ROOTFS_DIR}" bash -c "
@@ -261,7 +268,6 @@ jobs:
           sudo cp ubuntu/ubuntu-firstrun-etc     "${ROOTFS_DIR}/etc/default/ubuntu-firstrun"
           sudo cp ubuntu/ubuntu-zram-config-etc  "${ROOTFS_DIR}/etc/default/ubuntu-zram-config"
           sudo cp ubuntu/ubuntu-ramlog           "${ROOTFS_DIR}/etc/default/ubuntu-ramlog"
-          sudo cp ubuntu/NetworkManager.conf     "${ROOTFS_DIR}/etc/NetworkManager/NetworkManager.conf"
           sudo cp ubuntu/u-u                     "${ROOTFS_DIR}/usr/local/bin/u-u"
           sudo chmod +x "${ROOTFS_DIR}/usr/local/bin/u-u"
 
