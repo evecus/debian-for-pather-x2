@@ -16,8 +16,6 @@ on:
         type: choice
         options:
           - bookworm
-          - trixie
-          - bullseye
 
       root_password:
         description: "root 密码"
@@ -38,9 +36,6 @@ on:
         type: choice
         options:
           - Asia/Shanghai
-          - Asia/Tokyo
-          - America/New_York
-          - Europe/London
           - UTC
 
       extra_packages:
