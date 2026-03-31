@@ -44,9 +44,6 @@ on:
         default: ""
         type: string
 
-  schedule:
-    - cron: "0 0 1 * *"
-
 env:
   TZ: UTC
   DEBIAN_MIRROR: "https://deb.debian.org/debian"
@@ -150,10 +147,10 @@ jobs:
             apt-get install -y \
               openssh-server sudo curl wget ca-certificates \
               locales tzdata \
-              iproute2 network-manager ifupdown \
+              iproute2 network-manager \
               net-tools iputils-ping dnsutils \
               wireless-tools chrony \
-              bash-completion htop nano vim nftables \
+              bash-completion htop nano nftables \
               u-boot-tools initramfs-tools parted \
               btrfs-progs e2fsprogs dosfstools \
               lsof file procps cron ntpdate bsdextrautils \
@@ -271,16 +268,12 @@ jobs:
           # NetworkManager-wait-online.service: 等待网络上线会拖慢启动
           # e2scrub_reap.service: ext4 在线检查需要 LVM，此环境不适用
           # systemd-pstore.service: 内核崩溃日志持久化，嵌入式不需要
-          sudo chroot "${ROOTFS_DIR}" systemctl disable networking.service 2>/dev/null || true
           sudo chroot "${ROOTFS_DIR}" systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
           sudo chroot "${ROOTFS_DIR}" systemctl disable e2scrub_reap.service 2>/dev/null || true
           sudo chroot "${ROOTFS_DIR}" systemctl disable systemd-pstore.service 2>/dev/null || true
 
           echo "▶ debian platform scripts injected"
           
-          # ── 禁用 plymouth initramfs hook ─────────────────────────────
-          sudo mkdir -p "${ROOTFS_DIR}/usr/share/initramfs-tools/hooks"
-          sudo ln -sf /dev/null "${ROOTFS_DIR}/usr/share/initramfs-tools/hooks/plymouth"
 
           # ── uInitrd 钩子（让 initramfs-tools 生成 u-boot 兼容格式）──
           # 解码内容：mkimage -A arm64 -O linux -T ramdisk -C gzip ...
