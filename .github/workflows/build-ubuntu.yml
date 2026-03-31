@@ -14,11 +14,10 @@ on:
       debian_release:
         description: "镜像版本标识 (用于 Release 命名)"
         required: false
-        default: "bookworm"
+        default: "noble"
         type: choice
         options:
-          - bookworm
-          - trixie
+          - noble
       armbian_kernel:
         description: "内核版本 (panther-x2 使用 stable 系列)"
         required: false
