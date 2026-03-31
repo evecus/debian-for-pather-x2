@@ -150,10 +150,10 @@ jobs:
             apt-get install -y \
               openssh-server sudo curl wget ca-certificates \
               locales tzdata \
-              iproute2 network-manager ifupdown \
+              iproute2 network-manager \
               net-tools iputils-ping dnsutils \
               wireless-tools chrony \
-              bash-completion htop nano vim nftables \
+              bash-completion htop nano nftables \
               u-boot-tools initramfs-tools parted \
               btrfs-progs e2fsprogs dosfstools \
               lsof file procps cron ntpdate bsdextrautils \
@@ -248,6 +248,7 @@ jobs:
 
           # 脚本本体（ubuntu/ 目录下，与 debian/ 目录结构一致）
           for f in ubuntu/ubuntu-firstrun \
+                   ubuntu/ubuntu-common \
                    ubuntu/ubuntu-hardware-optimization \
                    ubuntu/ubuntu-resize-filesystem \
                    ubuntu/ubuntu-zram-config; do
@@ -281,12 +282,9 @@ jobs:
           sudo chroot "${ROOTFS_DIR}" systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
           sudo chroot "${ROOTFS_DIR}" systemctl disable e2scrub_reap.service 2>/dev/null || true
           sudo chroot "${ROOTFS_DIR}" systemctl disable systemd-pstore.service 2>/dev/null || true
+          sudo chroot "${ROOTFS_DIR}" apt-get remove -y netplan.io 2>/dev/null || true
 
           echo "▶ ubuntu platform scripts injected"
-
-          # ── 禁用 plymouth initramfs hook ─────────────────────────────
-          sudo mkdir -p "${ROOTFS_DIR}/usr/share/initramfs-tools/hooks"
-          sudo ln -sf /dev/null "${ROOTFS_DIR}/usr/share/initramfs-tools/hooks/plymouth"
 
           # ── uInitrd 钩子（让 initramfs-tools 生成 u-boot 兼容格式）──
           # 解码内容：mkimage -A arm64 -O linux -T ramdisk -C gzip ...
