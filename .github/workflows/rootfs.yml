@@ -237,6 +237,7 @@ jobs:
                    debian/debian-common \
                    debian/debian-hardware-optimization \
                    debian/debian-resize-filesystem \
+                   debian/debian-ramlog \
                    debian/debian-zram-config; do
             sudo cp "${f}" "${ROOTFS_DIR}/usr/lib/debian/$(basename ${f})"
           done
@@ -253,6 +254,7 @@ jobs:
           
           # systemd service 文件
           for f in systemd/debian-firstrun.service \
+                   systemd/debian-ramlog.service \
                    systemd/debian-hardware-optimize.service \
                    systemd/debian-resize-filesystem.service \
                    systemd/debian-zram-config.service; do
@@ -261,6 +263,7 @@ jobs:
 
           # enable 服务
           sudo chroot "${ROOTFS_DIR}" systemctl enable debian-firstrun.service
+          sudo chroot "${ROOTFS_DIR}" systemctl enable debian-ramlog.service
           sudo chroot "${ROOTFS_DIR}" systemctl enable debian-hardware-optimize.service
           sudo chroot "${ROOTFS_DIR}" systemctl enable debian-resize-filesystem.service
           sudo chroot "${ROOTFS_DIR}" systemctl enable debian-zram-config.service
