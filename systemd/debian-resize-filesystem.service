@@ -1,7 +1,3 @@
-# Debian resize filesystem service
-# Resizes partition and filesystem on first/second boot
-# This service may block the boot process for up to 3 minutes
-
 [Unit]
 Description=Debian filesystem resize
 Before=basic.target
