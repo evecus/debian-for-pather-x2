@@ -248,7 +248,6 @@ jobs:
           sudo cp debian/debian-firstrun-etc "${ROOTFS_DIR}/etc/default/debian-firstrun"
           sudo cp debian/debian-ramlog-etc "${ROOTFS_DIR}/etc/default/debian-ramlog"
           sudo cp debian/debian-zram-config-etc "${ROOTFS_DIR}/etc/default/debian-zram-config"
-          sudo cp debian/debian-ramlog "${ROOTFS_DIR}/etc/default/debian-ramlog"
           sudo cp debian/NetworkManager.conf "${ROOTFS_DIR}/etc/NetworkManager/NetworkManager.conf"
           sudo cp debian/debian-update "${ROOTFS_DIR}/usr/local/bin/d-u"
           sudo chmod +x "${ROOTFS_DIR}/usr/local/bin/d-u"
