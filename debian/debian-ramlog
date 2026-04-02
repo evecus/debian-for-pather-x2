@@ -8,7 +8,7 @@
 
 SIZE=50M
 USE_RSYNC=true
-ENABLED=false
+ENABLED=true
 HDD_LOG=/var/log.hdd
 
 [ -f /etc/default/debian-ramlog ] && . /etc/default/debian-ramlog
