@@ -44,7 +44,7 @@ activate_zram() {
 	cpu_cores=$(grep -c '^processor' /proc/cpuinfo | sed 's/^0$/1/')
 	[[ ${cpu_cores} -gt ${zram_max_devs} ]] && zram_devices=${zram_max_devs} || zram_devices=${cpu_cores}
 	module_args="$(modinfo zram | awk -F" " '/num_devices/ {print $2}' | cut -f1 -d:)"
-	[[ -n ${module_args} ]] && modprobe zram ${module_args}=$(( zram_devices + 2 )) || return
+	[[ -n ${module_args} ]] && modprobe zram ${module_args}=$(( zram_devices + 1 )) || return
 
 	swap_algo=${SWAP_ALGORITHM:=lzo}
 	# Expose 50% of real memory as swap space by default
@@ -138,37 +138,10 @@ activate_ramlog_partition() {
 	printf "### Activated Debian ramlog partition with %s compression\n" "${algo}" >> ${Log}
 } # activate_ramlog_partition
 
-activate_compressed_tmp() {
-	# create /tmp not as tmpfs but zram compressed if no fstab entry exists
-	grep -q '^tmpfs /tmp' /etc/mtab && return
-	tmp_device=$(zramctl -f |sed 's/\/dev\///')
-	[[ ! ${tmp_device} =~ ^zram ]] && printf "\n### No more available zram devices (%s)\n" "${tmp_device}" >> ${Log} && exit 1;
-
-	if [[ -f /sys/block/${tmp_device}/comp_algorithm ]]; then
-		if [ "X${TMP_ALGORITHM}" = "X" ]; then
-			echo ${swap_algo} >/sys/block/${tmp_device}/comp_algorithm 2>/dev/null
-		else
-			echo ${TMP_ALGORITHM} >/sys/block/${tmp_device}/comp_algorithm 2>/dev/null
-		fi
-	fi
-	[[ -z ${TMP_SIZE} ]] && echo -n $(( memory_total / 2 )) > /sys/block/${tmp_device}/disksize || echo -n ${TMP_SIZE} > /sys/block/${tmp_device}/disksize
-	if dpkg --compare-versions "$MKFS_VERSION" gt "2.40.1"; then
-		mkfs.ext4 -O ^has_journal -L tmp /dev/${tmp_device}
-	else
-		mkfs.ext4 -O ^has_journal -s 1024 -L tmp /dev/${tmp_device}
-	fi
-
-	mount -o nosuid,discard /dev/${tmp_device} /tmp
-	chmod 1777 /tmp
-	algo=$(sed 's/.*\[\([^]]*\)\].*/\1/g' </sys/block/${tmp_device}/comp_algorithm)
-	printf "\n### Activated %s compressed /tmp\n" "${algo}" >> ${Log}
-} # activate_compressed_tmp
-
 case $1 in
 	*start*)
 		activate_zram
 		activate_zram_swap
 		activate_ramlog_partition
-		activate_compressed_tmp
 		;;
 esac
