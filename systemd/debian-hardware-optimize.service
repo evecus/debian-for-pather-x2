@@ -1,7 +1,3 @@
-# Debian hardware optimization service
-# Apply optimisations
-# This service may block the boot process for up to 2 minutes
-
 [Unit]
 Description=Debian hardware optimization
 Before=basic.target
