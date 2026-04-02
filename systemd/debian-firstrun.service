@@ -1,7 +1,3 @@
-# Debian firstrun service
-# Regenerates the SSH keys and performs additional first run tweaks
-# This service will run in parallel with other services
-
 [Unit]
 Description=Debian first run tasks
 Before=getty.target system-getty.slice
