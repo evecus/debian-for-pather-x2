@@ -166,7 +166,7 @@ jobs:
             # 显式安装并标记为手动安装，防止被 autoremove 清理
             apt-get install -y \
               openssh-server sudo curl wget ca-certificates \
-              locales tzdata \
+              locales tzdata fdisk \
               iproute2 network-manager netplan.io \
               net-tools iputils-ping dnsutils \
               wireless-tools chrony \
