@@ -224,16 +224,7 @@ jobs:
           # Ubuntu Noble 默认使用 netplan 作为网络配置前端，若无任何 yaml
           # 文件，netplan 不会渲染任何接口给 NetworkManager，导致拿不到 IP
           sudo mkdir -p "${ROOTFS_DIR}/etc/netplan"
-          sudo tee "${ROOTFS_DIR}/etc/netplan/01-nm-all.yaml" > /dev/null <<'NETPLAN'
-network:
-  version: 2
-  renderer: NetworkManager
-  ethernets:
-    all-eth:
-      match:
-        name: "eth*"
-      dhcp4: true
-NETPLAN
+          sudo cp ubuntu/01-nm-all.yaml "${ROOTFS_DIR}/etc/netplan/01-nm-all.yaml"
           sudo chmod 600 "${ROOTFS_DIR}/etc/netplan/01-nm-all.yaml"
 
           # 启用服务
@@ -284,7 +275,7 @@ NETPLAN
           sudo cp ubuntu/ubuntu-release          "${ROOTFS_DIR}/etc/ubuntu-release"
           sudo cp ubuntu/ubuntu-firstrun-etc     "${ROOTFS_DIR}/etc/default/ubuntu-firstrun"
           sudo cp ubuntu/ubuntu-zram-config-etc  "${ROOTFS_DIR}/etc/default/ubuntu-zram-config"
-          sudo cp ubuntu/ubuntu-ramlog           "${ROOTFS_DIR}/etc/default/ubuntu-ramlog-etc"
+          sudo cp ubuntu/ubuntu-ramlog-etc         "${ROOTFS_DIR}/etc/default/ubuntu-ramlog"
           sudo cp ubuntu/u-u                     "${ROOTFS_DIR}/usr/local/bin/u-u"
           sudo chmod +x "${ROOTFS_DIR}/usr/local/bin/u-u"
 
