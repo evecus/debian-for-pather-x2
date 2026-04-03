@@ -290,7 +290,7 @@ main()
 	do_expand_filesystem "$rootdev" "/"
 
 	# disable itself
-	[[ ! -f /var/run/resize2fs-reboot ]] && systemctl disable ubuntu-resize-filesystem
+	[[ ! -f /var/run/resize2fs-reboot ]] && systemctl disable --now ubuntu-resize-filesystem 
 	exit 0
 }
 
