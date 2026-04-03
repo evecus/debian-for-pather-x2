@@ -669,8 +669,7 @@ make_image() {
     # echo -e "${INFO} The [ ${board} ] Armbian image partition status: [ skip:${skip_mb} / boot:${boot_mb} / rootfs:${root_mb} ] MiB."
 
     # Set firmware file name
-    os_prefix="$(echo "${release_codeid}" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')"
-    armbian_filename="${os_prefix}_${release_codename}_${board}_${kernel}_$(date +"%Y.%m.%d").img"
+    armbian_filename="Debian_${release_codename}_${board}_${kernel}_$(date +"%Y.%m.%d").img"
     build_image_file="${tmp_outpath}/${armbian_filename}"
     rm -f ${build_image_file}
 
