@@ -174,7 +174,7 @@ jobs:
               u-boot-tools initramfs-tools parted \
               btrfs-progs e2fsprogs dosfstools \
               lsof file procps cron ntpdate bsdextrautils \
-              wireless-regdb wpasupplicant \
+              wireless-regdb wpasupplicant rsync \
               --no-install-recommends
             
             apt-get clean && rm -rf /var/lib/apt/lists/*
