@@ -16,6 +16,7 @@ on:
         type: choice
         options:
           - bookworm
+          - trixie
 
       root_password:
         description: "root 密码"
