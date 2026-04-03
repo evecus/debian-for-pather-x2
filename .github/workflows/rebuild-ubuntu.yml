@@ -41,7 +41,7 @@ on:
 
 env:
   TZ: UTC
-  ROOTFS_DIR: /builder/debian-rootfs
+  ROOTFS_DIR: /builder/ubuntu-rootfs
   BOARD: panther-x2
 
 jobs:
@@ -196,7 +196,7 @@ jobs:
           allowUpdates: true
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
-            ## Debian ${{ inputs.debian_release }} for panther-x2 (RK3566)
+            ## Ubuntu ${{ inputs.debian_release }} for panther-x2 (RK3566)
             | 参数 | 值 |
             |------|-----|
             | 来源 rootfs | `${{ inputs.rootfs_url }}` |
