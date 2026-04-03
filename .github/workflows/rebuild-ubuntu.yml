@@ -2,7 +2,7 @@
 # 用途：基于【已有 rootfs tar.gz】构建 panther-x2 (RK3566) 镜像
 # rebuild 工具链已内置仓库，完全独立，不依赖外部 ophub 仓库
 #==========================================================================
-name: Build Ubuntu for panther-x2
+name: reBuild Ubuntu
 
 on:
   workflow_dispatch:
