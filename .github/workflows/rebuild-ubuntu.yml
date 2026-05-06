@@ -122,11 +122,7 @@ jobs:
 
           ROOTFS_MB=$(sudo du -sm "${ROOTFS_DIR}" | awk '{print $1}')
           echo "▶ rootfs 实际大小: ${ROOTFS_MB}MiB，创建 6G 稀疏镜像"
-
-          # truncate 创建稀疏文件，不实际占用磁盘空间，rsync 写多少占多少
           sudo truncate -s 6G "${IMG_PATH}"
-
-          sudo fallocate -l "${IMG_MB}M" "${IMG_PATH}"
 
           sudo parted -s "${IMG_PATH}" mklabel msdos
           sudo parted -s "${IMG_PATH}" mkpart primary ext4 4MiB 100%
@@ -146,9 +142,9 @@ jobs:
           rmdir "${MNT}"
 
           echo "▶ 镜像写入完成: $(du -sh ${IMG_PATH})"
-          echo "img_path=${IMG_PATH}"     >> "${GITHUB_OUTPUT}"
-          echo "img_outdir=${IMG_DIR}"    >> "${GITHUB_OUTPUT}"
-          echo "status=success"           >> "${GITHUB_OUTPUT}"
+          echo "img_path=${IMG_PATH}"  >> "${GITHUB_OUTPUT}"
+          echo "img_outdir=${IMG_DIR}" >> "${GITHUB_OUTPUT}"
+          echo "status=success"        >> "${GITHUB_OUTPUT}"
 
       # ── 5. Rebuild：注入内核 + uboot + 平台文件 ──────────────────────
       # panther-x2 在 model_database.conf 里: KERNEL_TAGS = stable/6.12.y
