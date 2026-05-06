@@ -19,6 +19,7 @@ on:
         options:
           - bookworm
           - trixie
+          - noble
       armbian_kernel:
         description: "内核版本 (panther-x2 使用 stable 系列)"
         required: false
