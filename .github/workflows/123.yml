@@ -133,11 +133,17 @@ jobs:
             "${DEBIAN_RELEASE}" \
             | sudo tee -a "${ROOTFS_DIR}/etc/apt/sources.list.d/debian.sources" > /dev/null
 
-          # ── 安装基础包 ────────────────────────────────────────────────
+           # ── 安装基础包 ────────────────────────────────────────────────
           echo "▶ 安装基础软件包..."
           sudo chroot "${ROOTFS_DIR}" /bin/bash -c "
+            set -e
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
+
+            # trixie 起 ntpdate 已被 ntpsec-ntpdate 取代
+            NTPDATE_PKG=ntpdate
+            apt-cache show ntpdate >/dev/null 2>&1 || NTPDATE_PKG=ntpsec-ntpdate
+
             apt-get install -y \
               openssh-server sudo curl wget ca-certificates \
               locales tzdata \
@@ -147,7 +153,7 @@ jobs:
               bash-completion htop nano nftables \
               u-boot-tools initramfs-tools parted \
               btrfs-progs e2fsprogs dosfstools \
-              lsof file procps cron ntpdate bsdextrautils \
+              lsof file procps cron \${NTPDATE_PKG} bsdextrautils \
               wireless-regdb systemd-resolved \
               --no-install-recommends
             apt-get install -y wpasupplicant
