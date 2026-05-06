@@ -4,7 +4,7 @@
 #       Release 附件链接即可跳过重新编译（节省 60-90 分钟）
 # 触发：手动 workflow_dispatch，或每月 1 日自动刷新
 #==========================================================================
-name: Build Debian RootFS on Arm64
+name: Build Debian RootFS
 
 on:
   workflow_dispatch:
