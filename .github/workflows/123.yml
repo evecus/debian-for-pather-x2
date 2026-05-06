@@ -123,16 +123,15 @@ jobs:
             --arch=arm64 --include=ca-certificates \
             "${DEBIAN_RELEASE}" "${ROOTFS_DIR}" "${DEBIAN_MIRROR}/"
 
-          # ── apt 源 ────────────────────────────────────────────────────
-          printf 'deb %s/ %s main contrib non-free non-free-firmware\n' \
-            "${DEBIAN_MIRROR}" "${DEBIAN_RELEASE}" \
-            | sudo tee    "${ROOTFS_DIR}/etc/apt/sources.list" > /dev/null
-          printf 'deb %s/ %s-updates main contrib non-free non-free-firmware\n' \
-            "${DEBIAN_MIRROR}" "${DEBIAN_RELEASE}" \
-            | sudo tee -a "${ROOTFS_DIR}/etc/apt/sources.list" > /dev/null
-          printf 'deb https://security.debian.org/debian-security %s-security main contrib non-free non-free-firmware\n' \
+          # ── apt 源（deb822 格式）──────────────────────────────────────────────
+          # 清空旧 sources.list，改用 deb822 格式
+          sudo truncate -s 0 "${ROOTFS_DIR}/etc/apt/sources.list"
+          printf 'Types: deb\nURIs: %s\nSuites: %s %s-updates\nComponents: main contrib non-free non-free-firmware\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n' \
+            "${DEBIAN_MIRROR}" "${DEBIAN_RELEASE}" "${DEBIAN_RELEASE}" \
+            | sudo tee    "${ROOTFS_DIR}/etc/apt/sources.list.d/debian.sources" > /dev/null
+          printf '\nTypes: deb\nURIs: https://security.debian.org/debian-security\nSuites: %s-security\nComponents: main contrib non-free non-free-firmware\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n' \
             "${DEBIAN_RELEASE}" \
-            | sudo tee -a "${ROOTFS_DIR}/etc/apt/sources.list" > /dev/null
+            | sudo tee -a "${ROOTFS_DIR}/etc/apt/sources.list.d/debian.sources" > /dev/null
 
           # ── 安装基础包 ────────────────────────────────────────────────
           echo "▶ 安装基础软件包..."
