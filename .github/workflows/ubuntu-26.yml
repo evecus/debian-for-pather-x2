@@ -26,6 +26,7 @@ on:
         type: choice
         options:
           - resolute
+          - noble
 
       armbian_kernel:
         description: "内核版本"
@@ -213,10 +214,9 @@ jobs:
               u-boot-tools initramfs-tools parted \
               btrfs-progs e2fsprogs dosfstools \
               lsof file procps cron ntpsec-ntpdate bsdextrautils \
-              wireless-regdb rsync \
+              wireless-regdb rsync systemd-resolved \
               --no-install-recommends
             apt-get install -y wpasupplicant
-            apt-get install -y systemd-resolved --no-install-recommends
             apt-mark hold initramfs-tools 2>/dev/null || true
             dpkg -l openssh-server network-manager rsync | grep -c '^ii' | grep -q '^3$' || {
               echo 'ERROR: 关键包安装不完整'
@@ -435,11 +435,6 @@ jobs:
       )
     permissions:
       contents: write
-    env:
-      # 优先用手动输入的 URL；模式 B 时使用 build-rootfs 输出的 URL
-      EFFECTIVE_ROOTFS_URL: ${{ github.event.inputs.rootfs_url != '' && github.event.inputs.rootfs_url || needs.build-rootfs.outputs.rootfs_url }}
-      # 是否为"自动构建 rootfs"模式（决定 Release 是否更新 body）
-      BUILT_ROOTFS: ${{ github.event.inputs.rootfs_url == '' }}
 
     steps:
       - name: Checkout
@@ -477,10 +472,25 @@ jobs:
       # ── 3. 下载并解压 rootfs ──────────────────────────────────────────
       - name: Prepare rootfs
         id: rootfs
+        env:
+          INPUT_ROOTFS_URL:  ${{ github.event.inputs.rootfs_url }}
+          BUILDJOB_ROOTFS_URL: ${{ needs.build-rootfs.outputs.rootfs_url }}
         run: |
           set -euo pipefail
+
+          # 优先使用手动输入的 URL；模式 B 时用 build-rootfs job 输出的 URL
+          if [[ -n "${INPUT_ROOTFS_URL}" ]]; then
+            EFFECTIVE_ROOTFS_URL="${INPUT_ROOTFS_URL}"
+          elif [[ -n "${BUILDJOB_ROOTFS_URL}" ]]; then
+            EFFECTIVE_ROOTFS_URL="${BUILDJOB_ROOTFS_URL}"
+          else
+            echo "::error::rootfs URL 为空——既未手动输入，build-rootfs job 也未输出 URL"
+            exit 1
+          fi
+
           echo "▶ 使用 rootfs URL: ${EFFECTIVE_ROOTFS_URL}"
-          [[ -z "${EFFECTIVE_ROOTFS_URL}" ]] && { echo "::error::rootfs URL 为空，无法继续"; exit 1; }
+          # 写入后续步骤可读的环境变量
+          echo "EFFECTIVE_ROOTFS_URL=${EFFECTIVE_ROOTFS_URL}" >> "${GITHUB_ENV}"
 
           sudo mkdir -p "${ROOTFS_DIR}"
           echo "▶ 正在下载..."
