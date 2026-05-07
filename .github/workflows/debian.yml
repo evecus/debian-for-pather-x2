@@ -196,7 +196,7 @@ jobs:
               wireless-regdb rsync \
               --no-install-recommends
             apt-get install -y wpasupplicant
-            apt-get install systemd-resolved --no-install-recommends
+            apt-get install systemd-resolved -y --no-install-recommends
 
             # 验证关键包
             dpkg -l openssh-server network-manager rsync | grep -c '^ii' | grep -q '^3$' || {
