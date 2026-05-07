@@ -161,38 +161,39 @@ jobs:
           # 去除 heredoc 带来的行首缩进空格
           sudo sed -i 's/^[[:space:]]*//' "${ROOTFS_DIR}/etc/apt/sources.list.d/ubuntu.sources"
 
-          # ── 安装基础包 ────────────────────────────────────────────────
           echo "▶ 安装基础软件包..."
           sudo chroot "${ROOTFS_DIR}" /bin/bash -c "
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
 
-            # resolute (26.04) 默认用 dracut 替代了 initramfs-tools
-            # 嵌入式 u-boot 环境需要 initramfs-tools，强制安装并固定
-            if dpkg --compare-versions \"\$(apt-cache show initramfs-tools 2>/dev/null | awk '/^Version:/{print \$2;exit}')\" ge '0' 2>/dev/null; then
-              apt-get install -y dracut- initramfs-tools --no-install-recommends 2>/dev/null || \
-              apt-get install -y initramfs-tools --no-install-recommends
-            fi
+            # resolute(26.04) initramfs-tools 강제 설치
+            apt-get install -y dracut- initramfs-tools --no-install-recommends 2>/dev/null || \
+            apt-get install -y initramfs-tools --no-install-recommends
 
             apt-get install -y \
               openssh-server sudo curl wget ca-certificates \
               locales tzdata fdisk \
               iproute2 network-manager netplan.io \
               net-tools iputils-ping dnsutils \
-              wireless-tools chrony \
+              chrony \
               bash-completion htop nano nftables bc \
               u-boot-tools initramfs-tools parted \
               btrfs-progs e2fsprogs dosfstools \
-              lsof file procps cron ntpdate bsdextrautils \
+              lsof file procps cron ntpsec-ntpdate bsdextrautils \
               wireless-regdb rsync systemd-resolved \
               --no-install-recommends
             apt-get install -y wpasupplicant
-            # 固定 initramfs-tools，防止后续 upgrade 被 dracut 替换
             apt-mark hold initramfs-tools 2>/dev/null || true
-            # resolute (26.04) 引入了 sudo-rs，对嵌入式环境无影响，保留默认即可
+
+            # 关键包验证，装失败立即报错
+            dpkg -l openssh-server network-manager rsync | grep -c '^ii' | grep -q '^3$' || {
+              echo 'ERROR: 关键包安装不完整'
+              dpkg -l openssh-server network-manager rsync
+              exit 1
+            }
             apt-get clean && rm -rf /var/lib/apt/lists/*
           "
-
+          
           # ── 额外包（可选）────────────────────────────────────────────
           if [[ -n "${EXTRA_PKGS}" ]]; then
             echo "▶ 安装额外包: ${EXTRA_PKGS}"
@@ -238,7 +239,11 @@ jobs:
           sudo chmod 600 "${ROOTFS_DIR}/etc/netplan/01-nm-all.yaml"
 
           # 启用服务
-          sudo chroot "${ROOTFS_DIR}" systemctl enable ssh NetworkManager chrony nftables 2>/dev/null || true
+          sudo chroot "${ROOTFS_DIR}" systemctl enable ssh
+          sudo chroot "${ROOTFS_DIR}" systemctl enable NetworkManager
+          sudo chroot "${ROOTFS_DIR}" systemctl enable NetworkManager-dispatcher
+          sudo chroot "${ROOTFS_DIR}" systemctl enable chrony
+          sudo chroot "${ROOTFS_DIR}" systemctl enable nftables 2>/dev/null || true
 
           # ── Ubuntu 特有：禁用 snapd ──────────────────────────────────
           sudo chroot "${ROOTFS_DIR}" bash -c "
