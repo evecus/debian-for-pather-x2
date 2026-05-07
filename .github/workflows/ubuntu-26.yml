@@ -213,9 +213,10 @@ jobs:
               u-boot-tools initramfs-tools parted \
               btrfs-progs e2fsprogs dosfstools \
               lsof file procps cron ntpsec-ntpdate bsdextrautils \
-              wireless-regdb rsync systemd-resolved \
+              wireless-regdb rsync \
               --no-install-recommends
             apt-get install -y wpasupplicant
+            apt-get install -y systemd-resolved --no-install-recommends
             apt-mark hold initramfs-tools 2>/dev/null || true
             dpkg -l openssh-server network-manager rsync | grep -c '^ii' | grep -q '^3$' || {
               echo 'ERROR: 关键包安装不完整'
